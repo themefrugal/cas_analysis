@@ -96,7 +96,7 @@ get_transactions <- function(folio_ord_num){
     folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
     pan_num <- substr(folio_pan_split[2], 1, 10)
     fund_name <- scheme_name(folio_ord_num)
-    amc_name <- amc_lines[folio_ord_num]
+    amc_name <- all_lines[amc_lines[folio_ord_num]]
 
     dt_txns[, amc :=  amc_name]
     dt_txns[, fund :=  fund_name]
