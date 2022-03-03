@@ -6,6 +6,15 @@ library(dplyr)
 library(tidyr)
 library(tvm)
 
+# Todo:
+# Fund Level XIRR
+# Folio Level XIRR
+# Fund-Folio XIRR
+
+# Same Scheme:
+# - In different folios
+# - In different modes - regular vs direct
+
 XIRR <- function(dt_txn){
     out <- tryCatch(
     {
@@ -39,20 +48,6 @@ fund_and_advisor <- function(folio_ord_num){
         advisor_part <- trimws(fund_advisor[2])
     }
     return (c(fund_part, advisor_part))
-}
-
-get_amc_name <- function(folio_ord_num){
-    amc_name <- all_lines[amc_lines[folio_ord_num]]
-    temp_folio_ord <- folio_ord_num
-    repeat {
-        if (amc_name != "") {
-            break
-        }
-        # If the current folio does not have the AMC name, go to the previous folio
-        temp_folio_ord <- temp_folio_ord - 1
-        amc_name <- all_lines[amc_lines[temp_folio_ord]]
-    }
-    return (amc_name)
 }
 
 get_transactions <- function(folio_ord_num){
@@ -119,7 +114,7 @@ get_transactions <- function(folio_ord_num){
     folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
     pan_num <- substr(folio_pan_split[2], 1, 10)
     c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
-    amc_name <- get_amc_name(folio_ord_num)
+    amc_name <- all_lines[tail(amc_lines[which(amc_lines < folio_lines[folio_ord_num])], 1)]
 
     dt_txns[, amc :=  amc_name]
     dt_txns[, fund :=  fund_part]
@@ -167,7 +162,7 @@ for (i in 1:length(pages)){
 }
 
 folio_lines <- which(grepl("Folio No:", all_lines, fixed = TRUE))
-amc_lines <- folio_lines - 1
+amc_lines <- which(grepl("Mutual Fund", all_lines, fixed = TRUE))
 opening_lines <- which(grepl("Opening Unit Balance:", all_lines, fixed = TRUE))
 closing_lines <- which(grepl("Closing Unit Balance:", all_lines, fixed = TRUE))
 
@@ -178,11 +173,11 @@ xirr_folio <- XIRR(dt_txn)
 dt_all_txns <- get_portfolio_transactions(folio_lines)
 xirr_all <-XIRR(dt_all_txns)
 
-dt_equity_txns <- get_portfolio_transactions(equity_folios)
-xirr_equity <- XIRR(dt_equity_txns)
+# dt_equity_txns <- get_portfolio_transactions(equity_folios)
+# xirr_equity <- XIRR(dt_equity_txns)
 
-dt_debt_txns <- get_portfolio_transactions(debt_folios)
-xirr_debt <- XIRR(dt_debt_txns)
+# dt_debt_txns <- get_portfolio_transactions(debt_folios)
+# xirr_debt <- XIRR(dt_debt_txns)
 
 # Creating MF Summary table
 dt_full_table <- rbindlist(lapply(c(1:length(folio_lines)), get_mf_table))
