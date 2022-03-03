@@ -1,6 +1,7 @@
-library(pdftools)
-library(stringr)
 library(data.table)
+library(pdftools)
+library(zeallot)
+library(stringr)
 library(dplyr)
 library(tidyr)
 library(tvm)
@@ -24,12 +25,34 @@ XIRR <- function(dt_txn){
     return (out)
 }
 
-scheme_name <- function(folio_ord_num){
+fund_and_advisor <- function(folio_ord_num){
     folio_to_txn_lines <- all_lines[folio_lines[folio_ord_num]:opening_lines[folio_ord_num]]
     fund_name_line <- folio_to_txn_lines[which(grepl("^[A-Z0-9]+-[A-Za-z&]+\\s", folio_to_txn_lines))]
     # print(paste(folio_ord_num, fund_name_line))
     mf_name <- trimws(strsplit(fund_name_line, "\\s{6}")[[1]][1])
-    return (mf_name)
+
+    fund_advisor <- str_split(gsub('(.+)\\(Advisor:\\s+(.*)\\)','\\1:::\\2', mf_name), ':::')[[1]]
+    fund_part <- trimws(fund_advisor[1])
+    if (length(fund_advisor) == 1){
+        advisor_part <- ''
+    } else {
+        advisor_part <- trimws(fund_advisor[2])
+    }
+    return (c(fund_part, advisor_part))
+}
+
+get_amc_name <- function(folio_ord_num){
+    amc_name <- all_lines[amc_lines[folio_ord_num]]
+    temp_folio_ord <- folio_ord_num
+    repeat {
+        if (amc_name != "") {
+            break
+        }
+        # If the current folio does not have the AMC name, go to the previous folio
+        temp_folio_ord <- temp_folio_ord - 1
+        amc_name <- all_lines[amc_lines[temp_folio_ord]]
+    }
+    return (amc_name)
 }
 
 get_transactions <- function(folio_ord_num){
@@ -95,11 +118,12 @@ get_transactions <- function(folio_ord_num){
     folio_pan_split <- str_split(all_lines[folio_lines[folio_ord_num]], '\\s+PAN:\\s+')[[1]]
     folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
     pan_num <- substr(folio_pan_split[2], 1, 10)
-    fund_name <- scheme_name(folio_ord_num)
-    amc_name <- all_lines[amc_lines[folio_ord_num]]
+    c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
+    amc_name <- get_amc_name(folio_ord_num)
 
     dt_txns[, amc :=  amc_name]
-    dt_txns[, fund :=  fund_name]
+    dt_txns[, fund :=  fund_part]
+    dt_txns[, advisor :=  advisor_part]
     dt_txns[, folio :=  folio_num]
     dt_txns[, pan :=  pan_num]
 
@@ -118,15 +142,10 @@ get_mf_table <- function(folio_ord_num){
     #print(closing_strings)
     cur_value <- as.numeric(gsub(',', '', closing_strings[4]))
 
-    folio_to_txn_lines <- all_lines[folio_lines[folio_ord_num]:opening_lines[folio_ord_num]]
-    fund_name_line <- folio_to_txn_lines[which(grepl("^[A-Z0-9]+-[A-Za-z&]+\\s", folio_to_txn_lines))]
-    # print(paste(folio_ord_num, fund_name_line))
-    mf_name <- trimws(strsplit(fund_name_line, "\\s{6}")[[1]][1])
-    # mf_name <- trimws(gsub('[A-Z0-9]+-(.*)\\s+Registrar :.*', '\\1', all_lines[folio_lines[folio_ord_num] + 1]))
+    c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
     xirr_val <- XIRR(dt_txns)
-    df_mf <- rbind(data.frame(Name = mf_name, Value = cur_value, Xirr = xirr_val, First=first_date, Recent=last_date))
+    df_mf <- rbind(data.frame(Fund = fund_part, Value = cur_value, Xirr = xirr_val, First=first_date, Recent=last_date))
     return (df_mf)
-    # print(paste(mf_name, cur_value, xirr_val))
 }
 
 get_portfolio_transactions <- function(f_lines){
