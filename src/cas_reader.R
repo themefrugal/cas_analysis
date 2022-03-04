@@ -153,6 +153,20 @@ get_portfolio_transactions <- function(f_lines){
     return (dt_txns)
 }
 
+get_select_transactions <- function(selectors){
+    dt_cur_txns <- dt_all_txns
+    for (i in c(1:length(selectors))){
+        selector <- selectors[i]
+        dt_cur_txns <- dt_cur_txns[get(names(selector)) %in% unlist(selector)]
+    }
+
+    if(nrow(dt_cur_txns) > 0){
+        dt_cur_txns[, days :=  as.numeric(max(dt_cur_txns$date) - date)]
+        dt_cur_txns[, years := days/365.25]
+    }
+    return (dt_cur_txns)
+}
+
 source('./params_local.R')
 pages <- pdf_text(file_path)
 all_lines <- c()
@@ -171,7 +185,10 @@ dt_txn <- get_transactions(folio_ord_num)
 xirr_folio <- XIRR(dt_txn)
 
 dt_all_txns <- get_portfolio_transactions(folio_lines)
-xirr_all <-XIRR(dt_all_txns)
+xirr_all <- XIRR(dt_all_txns)
+
+dt_txn <- get_select_transactions(list(amc=c('Tata Mutual Fund', 'HDFC Mutual Fund'), advisor='DIRECT'))
+xirr_sel <- XIRR(dt_txn)
 
 # dt_equity_txns <- get_portfolio_transactions(equity_folios)
 # xirr_equity <- XIRR(dt_equity_txns)
