@@ -1,5 +1,5 @@
 navbarPage(
-    title = 'Sample Page',
-    tabPanel('Sample Tab1', DT::dataTableOutput('ex1')),
-    tabPanel('Sample Tab2', DT::dataTableOutput('ex2'))
+    title = 'Mutual Fund Analysis and Report',
+    tabPanel('Summary', DT::dataTableOutput('summary')),
+    tabPanel('Transactions', DT::dataTableOutput('transactions'))
 )

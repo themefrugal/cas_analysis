@@ -172,7 +172,7 @@ get_select_transactions <- function(selectors, presence){
     return (dt_cur_txns)
 }
 
-source('./params_local.R')
+# source('./params_local.R')
 pages <- pdf_text(file_path)
 all_lines <- c()
 for (i in 1:length(pages)){
@@ -186,6 +186,7 @@ opening_lines <- which(grepl("Opening Unit Balance:", all_lines, fixed = TRUE))
 closing_lines <- which(grepl("Closing Unit Balance:", all_lines, fixed = TRUE))
 
 # Processing IRR for a single transaction
+folio_ord_num <- 12
 dt_txn <- get_transactions(folio_ord_num)
 xirr_folio <- XIRR(dt_txn)
 
