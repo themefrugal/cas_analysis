@@ -6,15 +6,7 @@ library(dplyr)
 library(tidyr)
 library(tvm)
 
-# Todo:
-# Fund Level XIRR
-# Folio Level XIRR
-# Fund-Folio XIRR
-
-# Same Scheme:
-# - In different folios
-# - In different modes - regular vs direct
-
+source('./cas_regex.R')
 XIRR <- function(dt_txn){
     out <- tryCatch(
     {
@@ -36,11 +28,11 @@ XIRR <- function(dt_txn){
 
 fund_and_advisor <- function(folio_ord_num){
     folio_to_txn_lines <- all_lines[folio_lines[folio_ord_num]:opening_lines[folio_ord_num]]
-    fund_name_line <- folio_to_txn_lines[which(grepl("^[A-Z0-9]+-[A-Za-z&]+\\s", folio_to_txn_lines))]
+    fund_name_line <- folio_to_txn_lines[which(grepl(fund_name_pattern, folio_to_txn_lines))]
     # print(paste(folio_ord_num, fund_name_line))
     mf_name <- trimws(strsplit(fund_name_line, "\\s{6}")[[1]][1])
 
-    fund_advisor <- str_split(gsub('(.+)\\(Advisor:\\s+(.*)\\)','\\1:::\\2', mf_name), ':::')[[1]]
+    fund_advisor <- str_split(gsub(fund_advisor_pattern, mf_name), ':::')[[1]]
     fund_part <- trimws(fund_advisor[1])
     if (length(fund_advisor) == 1){
         advisor_part <- ''
@@ -57,7 +49,7 @@ get_transactions <- function(folio_ord_num){
     df_txns <- data.frame(date=character(), description=character(), amount=double())
     df_info <- data.frame(description=character())
     for (i in 1:length(working_set)){
-        grouped_str <- gsub('(\\d{2}-[A-Za-z]{3}-\\d{4})(.*)((\\s+[(),.0-9]+){4})', '\\1xx\\2xx\\3', working_set[i])
+        grouped_str <- gsub(transaction_pattern, working_set[i])
         dt_desc_nums <- str_split(grouped_str, pattern = "xx")
         separated_words <- unlist(lapply(dt_desc_nums[[1]], trimws))
 
@@ -65,8 +57,7 @@ get_transactions <- function(folio_ord_num){
             df_txns[nrow(df_txns) + 1, ]  <- separated_words
         } else {
             if(grepl('\\*+\\s*IDCW.*', separated_words)){
-                idcw_line <- gsub('(\\d{2}-[A-Za-z]{3}-\\d{4})\\s+\\*+(.*)\\*+(\\s+)([,.0-9]+)',
-                    '\\1:::\\2:::\\4', separated_words)
+                idcw_line <- gsub(idcw_pattern, '\\1:::\\2:::\\4', separated_words)
                 dt_desc_value <- str_split(idcw_line, pattern = ':::')
                 idcw_words <- unlist(lapply(dt_desc_value[[1]], trimws))
                 idcw_words[3] <- paste(paste0('(', idcw_words[3], ')'), '0', '0', '0')
@@ -94,8 +85,6 @@ get_transactions <- function(folio_ord_num){
     }
     dt_txns <- dt_txns[order(date)]  # Sorting with Earliest Date first
 
-    closing_line_pattern <-
-        'Closing\\s+Unit\\s+Balance:\\s+([0-9,.]+).*INR\\s+([0-9,.]+).*Valuation\\s+on\\s+(\\d{2}-[A-Za-z]{3}-\\d{4}):\\s+INR\\s+([0-9,.]+)'
     closing_line <- gsub(closing_line_pattern, '\\1 \\2 \\3 \\4', all_lines[closing_lines[folio_ord_num]])
     closing_strings <- str_split(closing_line, '\\s+')[[1]]
     #print(closing_strings)
@@ -110,7 +99,7 @@ get_transactions <- function(folio_ord_num){
     dt_txns[, days :=  as.numeric(max(dt_txns$date) - date)]
     dt_txns[, years := days/365.25]
 
-    folio_pan_split <- str_split(all_lines[folio_lines[folio_ord_num]], '\\s+PAN:\\s+')[[1]]
+    folio_pan_split <- str_split(all_lines[folio_lines[folio_ord_num]], folio_pan_pattern)[[1]]
     folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
     pan_num <- substr(folio_pan_split[2], 1, 10)
     c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
@@ -130,8 +119,6 @@ get_mf_table <- function(folio_ord_num){
     first_date <- min(dt_txns$date)
     last_date <- max(dt_txns$date)
 
-    closing_line_pattern <-
-        'Closing Unit Balance: ([0-9,.]+).*INR ([0-9,.]+).*Valuation on (\\d{2}-[A-Za-z]{3}-\\d{4}): INR ([0-9,.]+)'
     closing_line <- gsub(closing_line_pattern, '\\1 \\2 \\3 \\4', all_lines[closing_lines[folio_ord_num]])
     closing_strings <- str_split(closing_line, '\\s+')[[1]]
     #print(closing_strings)
