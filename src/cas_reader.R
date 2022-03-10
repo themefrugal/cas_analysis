@@ -6,7 +6,9 @@ library(dplyr)
 library(tidyr)
 library(tvm)
 
-source('./cas_regex.R')
+source('../src/cas_regex.R')
+source('../src/params_local.R')
+
 XIRR <- function(dt_txn){
     out <- tryCatch(
     {
@@ -32,7 +34,7 @@ fund_and_advisor <- function(folio_ord_num){
     # print(paste(folio_ord_num, fund_name_line))
     mf_name <- trimws(strsplit(fund_name_line, "\\s{6}")[[1]][1])
 
-    fund_advisor <- str_split(gsub(fund_advisor_pattern, mf_name), ':::')[[1]]
+    fund_advisor <- str_split(gsub(fund_advisor_pattern, '\\1:::\\2', mf_name), ':::')[[1]]
     fund_part <- trimws(fund_advisor[1])
     if (length(fund_advisor) == 1){
         advisor_part <- ''
@@ -49,7 +51,7 @@ get_transactions <- function(folio_ord_num){
     df_txns <- data.frame(date=character(), description=character(), amount=double())
     df_info <- data.frame(description=character())
     for (i in 1:length(working_set)){
-        grouped_str <- gsub(transaction_pattern, working_set[i])
+        grouped_str <- gsub(transaction_pattern, '\\1xx\\2xx\\3', working_set[i])
         dt_desc_nums <- str_split(grouped_str, pattern = "xx")
         separated_words <- unlist(lapply(dt_desc_nums[[1]], trimws))
 

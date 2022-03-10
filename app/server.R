@@ -1,4 +1,3 @@
-source('../src/params_local.R')
 source('../src/cas_reader.R')
 
 function(input, output) {
