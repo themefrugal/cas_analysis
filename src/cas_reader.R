@@ -128,7 +128,13 @@ get_mf_table <- function(folio_ord_num){
 
     c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
     xirr_val <- XIRR(dt_txns)
-    df_mf <- rbind(data.frame(Fund = fund_part, Value = cur_value, Xirr = xirr_val, First=first_date, Recent=last_date))
+    cash_in <- sum(dt_txns[amt > 0]$amt)
+    cash_out <- -sum(dt_txns[amt < 0]$amt)
+    df_mf <- rbind(data.frame(Fund = fund_part, Cur.Value = cur_value,
+        Invested = cash_in, Redeemed = cash_out - cur_value,
+        RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
+        UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
+        XIRR = xirr_val, StartDate=first_date, RecentDate=last_date))
     return (df_mf)
 }
 
@@ -160,4 +166,3 @@ get_select_transactions <- function(selectors, presence){
     }
     return (dt_cur_txns)
 }
-
