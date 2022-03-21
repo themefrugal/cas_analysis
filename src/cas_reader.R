@@ -44,6 +44,13 @@ fund_and_advisor <- function(folio_ord_num){
     return (c(fund_part, advisor_part))
 }
 
+folio_and_pan <- function(folio_ord_num){
+    folio_pan_split <- str_split(all_lines[folio_lines[folio_ord_num]], folio_pan_pattern)[[1]]
+    folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
+    pan_num <- substr(folio_pan_split[2], 1, 10)
+    return(c(folio_num, pan_num))
+}
+
 get_transactions <- function(folio_ord_num){
     folio_range <- folio_lines[folio_ord_num]:closing_lines[folio_ord_num]
     working_set <- all_lines[folio_range]
@@ -101,9 +108,7 @@ get_transactions <- function(folio_ord_num){
     dt_txns[, days :=  as.numeric(max(dt_txns$date) - date)]
     dt_txns[, years := days/365.25]
 
-    folio_pan_split <- str_split(all_lines[folio_lines[folio_ord_num]], folio_pan_pattern)[[1]]
-    folio_num <- str_split(folio_pan_split, 'Folio No:\\s+')[[1]][2]
-    pan_num <- substr(folio_pan_split[2], 1, 10)
+    c(folio_num, pan_num) %<-% folio_and_pan(folio_ord_num)
     c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
     amc_name <- all_lines[tail(amc_lines[which(amc_lines < folio_lines[folio_ord_num])], 1)]
 
@@ -130,6 +135,7 @@ get_mf_table <- function(folio_ord_num){
     xirr_val <- XIRR(dt_txns)
     cash_in <- sum(dt_txns[amt > 0]$amt)
     cash_out <- -sum(dt_txns[amt < 0]$amt)
+    # Realized and Unrealized Gains yet to be refined
     df_mf <- rbind(data.frame(Fund = fund_part, Cur.Value = cur_value,
         Invested = cash_in, Redeemed = cash_out - cur_value,
         RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
