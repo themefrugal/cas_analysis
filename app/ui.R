@@ -10,6 +10,12 @@ navbarPage(
                 actionButton("btn_proc", "Go!")
             ),
             mainPanel(
+                h3(textOutput('pf_xirr')),
+                br(), br(),
+                h3(textOutput('text_ovr_sum')),
+                DT::dataTableOutput('gains'),
+                br(), br(),
+                h3(textOutput('text_fol_sum')),
                 DT::dataTableOutput('summary')
             )
         )

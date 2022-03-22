@@ -140,7 +140,7 @@ get_mf_table <- function(folio_ord_num){
         Invested = cash_in, Redeemed = cash_out - cur_value,
         RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
         UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
-        XIRR = xirr_val, StartDate=first_date, RecentDate=last_date))
+        XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
     return (df_mf)
 }
 
