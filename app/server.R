@@ -1,5 +1,6 @@
-source('../src/cas_reader.R')
+source('cas_reader.R')
 library(DT)
+library(shiny)
 
 function(input, output) {
     init_proc <- reactive({

@@ -6,8 +6,7 @@ library(dplyr)
 library(tidyr)
 library(tvm)
 
-source('../src/cas_regex.R')
-source('../src/params_local.R')
+source('cas_regex.R')
 
 XIRR <- function(dt_txn){
     out <- tryCatch(
