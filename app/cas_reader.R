@@ -120,8 +120,7 @@ get_transactions <- function(folio_ord_num){
     return (dt_txns)
 }
 
-get_mf_table <- function(folio_ord_num){
-    dt_txns <- get_transactions(folio_ord_num)
+get_mf_summary <- function(dt_txns, folio_ord_num, folio_id=''){
     first_date <- min(dt_txns$date)
     last_date <- max(dt_txns$date)
 
@@ -130,17 +129,37 @@ get_mf_table <- function(folio_ord_num){
     #print(closing_strings)
     cur_value <- as.numeric(gsub(',', '', closing_strings[4]))
 
-    c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
     xirr_val <- XIRR(dt_txns)
     cash_in <- sum(dt_txns[amt > 0]$amt)
     cash_out <- -sum(dt_txns[amt < 0]$amt)
     # Realized and Unrealized Gains yet to be refined
-    df_mf <- rbind(data.frame(Fund = fund_part, Cur.Value = cur_value,
-        Invested = cash_in, Redeemed = cash_out - cur_value,
-        RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
-        UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
-        XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
+    if (folio_ord_num == -1){
+        df_mf <- rbind(data.frame(Folio = folio_id, Cur.Value = cur_value,
+            Invested = cash_in, Redeemed = cash_out - cur_value,
+            RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
+            UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
+            XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
+    } else {
+        c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
+        df_mf <- rbind(data.frame(Fund = fund_part, Cur.Value = cur_value,
+            Invested = cash_in, Redeemed = cash_out - cur_value,
+            RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
+            UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
+            XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
+    }
     return (df_mf)
+}
+
+get_mf_table <- function(folio_ord_num){
+    dt_txns <- get_transactions(folio_ord_num)
+    dt_mf_summary <- get_mf_summary(dt_txns, folio_ord_num)
+    return (dt_mf_summary)
+}
+
+get_mf_table_for_txns <- function(dt_all_txns, folio_id){
+    dt_txns <- dt_all_txns[folio == folio_id]
+    dt_mf_summary <- get_mf_summary(dt_txns, -1, folio_id)
+    return (dt_mf_summary)
 }
 
 get_portfolio_transactions <- function(f_lines){

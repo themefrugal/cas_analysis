@@ -16,7 +16,9 @@ navbarPage(
                 DT::dataTableOutput('gains'),
                 br(), br(),
                 h3(textOutput('text_fol_sum')),
-                DT::dataTableOutput('summary')
+                DT::dataTableOutput('summary'),
+                h3('Folio Level Summary'),
+                DT::dataTableOutput('folio_level_summary')
             )
         )
     ),

@@ -16,9 +16,23 @@ function(input, output) {
         opening_lines <<- which(grepl("Opening Unit Balance:", all_lines, ignore.case=TRUE))
         closing_lines <<- which(grepl("Closing Unit Balance:", all_lines, ignore.case=TRUE))
     })
+
     dt_mf_xirrs <- eventReactive(input$btn_proc, {
         init_proc()
         dt_full_table <- rbindlist(lapply(c(1:length(folio_lines)), get_mf_table))
+        names(dt_full_table)[names(dt_full_table) == 'XIRR'] <- 'XIRR%'
+        dt_full_table
+    })
+
+    dt_folio_xirrs <- eventReactive(input$btn_proc, {
+        init_proc()
+        dt_all_txns <- get_portfolio_transactions(folio_lines)
+        folio_ids <- unique(dt_all_txns$folio)
+        list_table <- list()
+        for (folio_id in folio_ids){
+            list_table <- c(list_table, list(get_mf_table_for_txns(dt_all_txns, folio_id)))
+        }
+        dt_full_table <- rbindlist(list_table)
         names(dt_full_table)[names(dt_full_table) == 'XIRR'] <- 'XIRR%'
         dt_full_table
     })
@@ -61,6 +75,12 @@ function(input, output) {
 
     output$summary <- DT::renderDataTable(
         datatable(dt_mf_xirrs(), filter='top', options = list(pageLength = 25)) %>%
+            formatRound(columns=c('Cur.Value', 'Invested', 'Redeemed',
+                'RealizedGains', 'UnrealizedGains', 'XIRR%'), digits=3)
+    )
+
+    output$folio_level_summary <- DT::renderDataTable(
+        datatable(dt_folio_xirrs(), filter='top', options = list(pageLength = 10)) %>%
             formatRound(columns=c('Cur.Value', 'Invested', 'Redeemed',
                 'RealizedGains', 'UnrealizedGains', 'XIRR%'), digits=3)
     )
