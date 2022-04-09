@@ -30,10 +30,10 @@ function(input, output) {
             NetInvestment = sum(dt_full_table$Invested) - sum(dt_full_table$Redeemed),
             CurrentValue = sum(dt_full_table$Cur.Value),
             TotalGains = sum(dt_full_table$Cur.Value) - (sum(dt_full_table$Invested) - sum(dt_full_table$Redeemed)))
-        dt_gains_t <- transpose(dt_gains)
-        names(dt_gains_t) <- 'Amount'
-        row.names(dt_gains_t) <- names(dt_gains)
-        dt_gains_t
+        df_gains_t <- data.frame(t(dt_gains))
+        names(df_gains_t) <- 'Amount'
+        row.names(df_gains_t) <- names(dt_gains)
+        df_gains_t
     })
 
     dt_port_xirr <- eventReactive(input$btn_proc, {
