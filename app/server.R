@@ -86,7 +86,7 @@ function(input, output) {
     )
 
     output$transactions <- DT::renderDataTable(
-        datatable(dt_port_txns(), filter='top', options = list(pageLength = 25)) %>%
+        datatable(dt_port_txns(), filter='top', options = list(dom = '<"top" p>', pageLength = 25)) %>%
             formatRound(columns=c('Amount', 'NAV', 'TransactionUnits', 'BalanceUnits'), digits=3)
     )
 
