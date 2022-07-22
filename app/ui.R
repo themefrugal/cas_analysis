@@ -1,3 +1,4 @@
+# To do: comparative chart with any selected mutual fund or index.encrypted
 library(shiny)
 navbarPage(
     title = 'Mutual Fund Analysis and Report',
