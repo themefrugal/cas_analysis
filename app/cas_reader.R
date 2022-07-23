@@ -1,3 +1,4 @@
+library(rjson)
 library(data.table)
 library(pdftools)
 library(zeallot)
@@ -189,4 +190,29 @@ get_select_transactions <- function(selectors, presence){
         dt_cur_txns[, years := days/365.25]
     }
     return (dt_cur_txns)
+}
+
+get_navs <- function(scheme_code){
+    mf_url <- paste0('https://api.mfapi.in/mf/', scheme_code)
+    # Directly using readLines on the URL
+    json_data <- fromJSON(paste(readLines(mf_url), collapse=""))
+
+    # MF Info
+    dt_mf_info <- data.table(t(data.frame(unlist(json_data[[1]]))))
+
+    # MF NAVs
+    dt_navs <- data.table(do.call(rbind.data.frame, json_data[[2]]))
+    dt_navs[, date := as.Date(date, format="%d-%m-%Y")]
+    dt_navs[, nav := as.numeric(nav)]
+    dt_navs <- dt_navs[order(date)]
+
+    # Fill in for all dates
+    all_dates <- seq.Date(min(dt_navs$date), max(dt_navs$date), by=1)
+    dt_all_dates <- data.table(all_dates)
+    names(dt_all_dates) <- 'date'
+    dt_navs <- merge(dt_all_dates, dt_navs, by='date', all.x=TRUE)
+    # Get the next observed value carried backward for missing days ("nocb")
+    dt_navs$nav <- nafill(dt_navs$nav, type='nocb')
+    dt_navs <- dt_navs[nav != 0]
+    return(dt_navs)
 }
