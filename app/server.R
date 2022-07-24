@@ -50,6 +50,32 @@ function(input, output) {
         df_gains_t
     })
 
+    dt_bm_table <- eventReactive(input$btn_proc, {
+        # HDFC Nify 50 Fund Regular Growth
+        scheme_code <- '101525'
+        dt_navs <- get_navs(scheme_code)
+        dt_all_txns <- get_portfolio_transactions(folio_lines)
+
+        dt_inv_txns <- dt_all_txns[description != 'Cur Value'][, c('date', 'description', 'amt')]
+        dt_bm_txns <- merge(dt_inv_txns, dt_navs, by='date')
+        dt_bm_txns[, units := amt/nav]
+        cur_date <- dt_all_txns[description == 'Cur Value']$date[1]
+        cur_nav <- dt_navs[date == cur_date]$nav
+        total_units <- -sum(dt_bm_txns$units)
+        cur_value <- total_units * cur_nav
+        dt_bm_final <- rbindlist(list(dt_bm_txns, list(cur_date, 'BM Cur Value', cur_value, cur_nav, total_units)))
+        dt_bm_final[, days :=  as.numeric(max(dt_bm_final$date) - date)]
+        dt_bm_final[, years := days/365.25]
+        bm_xirr <- XIRR(dt_bm_final)
+
+        dt_benchmark <- data.table(BenchmarkEqv = -cur_value,
+            BenchmarkXIRR = bm_xirr * 100)
+        df_benchmark_t <- data.frame(t(dt_benchmark))
+        names(df_benchmark_t) <- 'Value'
+        row.names(df_benchmark_t) <- names(dt_benchmark)
+        df_benchmark_t
+    })
+
     dt_port_xirr <- eventReactive(input$btn_proc, {
         dt_all_txns <- get_portfolio_transactions(folio_lines)
         xirr_all <- XIRR(dt_all_txns)
@@ -71,6 +97,10 @@ function(input, output) {
 
     output$gains <- DT::renderDataTable(
         datatable(dt_gains_table()) %>% formatRound(columns=c('Amount'), digits=3)
+    )
+
+    output$benchmark <- DT::renderDataTable(
+        datatable(dt_bm_table()) %>% formatRound(columns=c('Value'), digits=3)
     )
 
     output$summary <- DT::renderDataTable(
