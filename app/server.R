@@ -56,6 +56,8 @@ function(input, output) {
         dt_navs <- get_navs(scheme_code)
         dt_all_txns <- get_portfolio_transactions(folio_lines)
 
+        # To do: Instead of comparing with a single fund, give option to compare against any fund
+        # selected
         dt_inv_txns <- dt_all_txns[description != 'Cur Value'][, c('date', 'description', 'amt')]
         dt_bm_txns <- merge(dt_inv_txns, dt_navs, by='date')
         dt_bm_txns[, units := amt/nav]
