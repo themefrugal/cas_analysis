@@ -1,9 +1,11 @@
 # To do: comparative chart with any selected mutual fund or index.encrypted
 library(shiny)
+library(shinythemes)
+
 navbarPage(
     title = 'Mutual Fund Analysis and Report',
     tabPanel('MF Summary',
-        fluidPage(
+        fluidPage(theme = shinytheme("cyborg"),
             sidebarPanel(
                 fileInput("file1", "Upload the CAS PDF File"),
                 passwordInput("password", "Password for the PDF:"),
