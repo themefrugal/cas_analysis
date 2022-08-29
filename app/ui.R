@@ -1,7 +1,7 @@
 # To do: comparative chart with any selected mutual fund or index.encrypted
 library(shiny)
 library(shinythemes)
-
+# try both shinythemes and bslib libraries
 navbarPage(
     title = 'Mutual Fund Analysis and Report',
     tabPanel('MF Summary',
