@@ -5,7 +5,7 @@ library(shinythemes)
 navbarPage(
     title = 'Mutual Fund Analysis and Report',
     tabPanel('MF Summary',
-        fluidPage(theme = shinytheme("cyborg"),
+        fluidPage(theme = shinytheme("spacelab"),
             sidebarPanel(
                 fileInput("file1", "Upload the CAS PDF File"),
                 passwordInput("password", "Password for the PDF:"),
