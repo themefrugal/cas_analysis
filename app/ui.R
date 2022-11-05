@@ -18,6 +18,7 @@ navbarPage(
                 h3(textOutput('text_ovr_sum')),
                 DT::dataTableOutput('gains'),
                 br(), br(),
+                selectizeInput("mf_name", "Benchmarks:", choices=c(), multiple=TRUE),
                 DT::dataTableOutput('benchmark'),
                 br(), br(),
                 h3(textOutput('text_fol_sum')),

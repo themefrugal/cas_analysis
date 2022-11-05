@@ -1,8 +1,35 @@
 source('cas_reader.R')
 library(DT)
 library(shiny)
+library(memoise)
+library(purrr)
 
-function(input, output) {
+read_from_internet <- FALSE
+if (read_from_internet){
+    mf_list_url <- 'https://api.mfapi.in/mf'
+    mf_list <- fromJSON(paste(readLines(mf_list_url), collapse=""))
+    dt_mfs <- data.table(do.call(rbind.data.frame, mf_list))
+
+    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, first_upper)
+    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, prune_left)
+    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, remove_extra_space)
+    dt_mfs <- dt_mfs[order(schemeName)]
+    dt_mfs <- unique(dt_mfs)
+    save(dt_mfs, file = './mf_codes.RData')
+} else {
+    load('./mf_codes.RData')
+}
+
+get_scheme_code <- function(mf_name){
+    # Check this: There are multiple scheme codes for the same scheme name (in approx 20 instances)
+    # As of now, we are taking the occurrence of first such instance
+    scheme_code <- dt_mfs[schemeName == mf_name]$schemeCode[1]
+    return (scheme_code)
+}
+mnav <- memoise(compose(get_navs, get_scheme_code))
+
+function(input, output, session) {
+    updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
     init_proc <- reactive({
         pages <- pdf_text(input$file1$datapath, upw=input$password)
         all_lines <<- c()
@@ -50,32 +77,41 @@ function(input, output) {
         df_gains_t
     })
 
-    dt_bm_table <- eventReactive(input$btn_proc, {
+    dt_bm_table <- reactive({
         # HDFC Nify 50 Fund Regular Growth
-        scheme_code <- '101525'
-        dt_navs <- get_navs(scheme_code)
-        dt_all_txns <- get_portfolio_transactions(folio_lines)
+        # scheme_code <- '101525'
+        list_benchmarks <- list()
+        for (mf_name in input$mf_name){
+            # scheme_code <- get_scheme_code(mf_name)
+            # dt_navs <- get_navs(scheme_code)
+            dt_navs <- mnav(mf_name)
+            dt_all_txns <- get_portfolio_transactions(folio_lines)
 
-        # To do: Instead of comparing with a single fund, give option to compare against any fund
-        # selected
-        dt_inv_txns <- dt_all_txns[description != 'Cur Value'][, c('date', 'description', 'amt')]
-        dt_bm_txns <- merge(dt_inv_txns, dt_navs, by='date')
-        dt_bm_txns[, units := amt/nav]
-        cur_date <- dt_all_txns[description == 'Cur Value']$date[1]
-        cur_nav <- dt_navs[date == cur_date]$nav
-        total_units <- -sum(dt_bm_txns$units)
-        cur_value <- total_units * cur_nav
-        dt_bm_final <- rbindlist(list(dt_bm_txns, list(cur_date, 'BM Cur Value', cur_value, cur_nav, total_units)))
-        dt_bm_final[, days :=  as.numeric(max(dt_bm_final$date) - date)]
-        dt_bm_final[, years := days/365.25]
-        bm_xirr <- XIRR(dt_bm_final)
+            # To do: Instead of comparing with a single fund, give option to compare against any fund
+            # selected
+            dt_inv_txns <- dt_all_txns[description != 'Cur Value'][, c('date', 'description', 'amt')]
+            dt_bm_txns <- merge(dt_inv_txns, dt_navs, by='date')
+            dt_bm_txns[, units := amt/nav]
+            cur_date <- dt_all_txns[description == 'Cur Value']$date[1]
+            cur_nav <- dt_navs[date == cur_date]$nav
+            total_units <- -sum(dt_bm_txns$units)
+            cur_value <- total_units * cur_nav
+            dt_bm_final <- rbindlist(list(dt_bm_txns, list(cur_date, 'BM Cur Value', cur_value, cur_nav, total_units)))
+            dt_bm_final[, days :=  as.numeric(max(dt_bm_final$date) - date)]
+            dt_bm_final[, years := days/365.25]
+            bm_xirr <- XIRR(dt_bm_final)
 
-        dt_benchmark <- data.table(BenchmarkEqv = -cur_value,
-            BenchmarkXIRR = bm_xirr * 100)
-        df_benchmark_t <- data.frame(t(dt_benchmark))
-        names(df_benchmark_t) <- 'Value'
-        row.names(df_benchmark_t) <- names(dt_benchmark)
-        df_benchmark_t
+            dt_benchmark <- data.table(
+                Benchmark = mf_name,
+                BenchmarkEqv = round(-cur_value, 3),
+                BenchmarkXIRR = round(bm_xirr * 100, 3))
+            #df_benchmark_t <- data.frame(t(dt_benchmark))
+            #names(df_benchmark_t) <- 'Value'
+            #row.names(df_benchmark_t) <- names(dt_benchmark)
+            #df_benchmark_t
+            list_benchmarks[[mf_name]] <- dt_benchmark
+        }
+        rbindlist(list_benchmarks)
     })
 
     dt_port_xirr <- eventReactive(input$btn_proc, {
@@ -102,7 +138,7 @@ function(input, output) {
     )
 
     output$benchmark <- DT::renderDataTable(
-        datatable(dt_bm_table()) %>% formatRound(columns=c('Value'), digits=3)
+        datatable(dt_bm_table())
     )
 
     output$summary <- DT::renderDataTable(
