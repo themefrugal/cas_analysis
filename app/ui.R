@@ -1,4 +1,7 @@
-# To do: comparative chart with any selected mutual fund or index.encrypted
+# To do:
+# 1. comparative chart with any selected mutual fund or index.encrypted
+# 2. Benchmarks to come only after the page is loaded.
+
 library(shiny)
 library(shinythemes)
 # try both shinythemes and bslib libraries
