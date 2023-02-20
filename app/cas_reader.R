@@ -1,11 +1,12 @@
-library(rjson)
-library(data.table)
-library(pdftools)
-library(zeallot)
-library(stringr)
-library(dplyr)
-library(tidyr)
-library(tvm)
+# From: https://stackoverflow.com/questions/4090169/elegant-way-to-check-for-missing-packages-and-install-them
+list.of.packages <- c("rjson", "data.table", "pdftools", "zeallot", "stringr", "dplyr", "tidyr", "tvm")
+
+for (package in list.of.packages){
+    if(!require(package, character.only=TRUE)){
+        install.packages(package)
+        library(package, character.only=TRUE)
+    }
+}
 
 source('cas_regex.R')
 
