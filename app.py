@@ -23,5 +23,11 @@ sel_folio = st.sidebar.selectbox("Select Folio:", df_data['folio_scheme'].unique
 df_folio = df_data[df_data['folio_scheme'] == sel_folio]
 
 st.write(df_folio)
-st.write('Net Profit:')
-st.write(-df_folio.amount.sum().round(2))
+sum_amount = df_folio.amount.sum().round(2)
+neg_values = [1 if x < 0 else 0 for x in df_folio['amount'].tolist()]
+if sum(neg_values) > 0:
+    st.write('Net Profit:')
+    st.write(-sum_amount)
+else:
+    st.write('Amount Invested:')
+    st.write(sum_amount)
