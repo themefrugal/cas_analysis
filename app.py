@@ -9,7 +9,7 @@ from io import StringIO
 # Source: https://github.com/codereverser/casparser
 # To do: Also need to compare with any MF using mfapi.in
 
-@st.cache
+@st.cache_data
 def get_data(file_path):
     data_csv = casparser.read_cas_pdf(file_path, "", output='csv')
     df_data = pd.read_csv(StringIO(data_csv))
