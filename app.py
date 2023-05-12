@@ -8,6 +8,7 @@ from io import StringIO
 # Base file to create a streamlit application using cas_parser
 # Source: https://github.com/codereverser/casparser
 # To do: Also need to compare with any MF using mfapi.in
+# Make a finance and investment utils library
 
 @st.cache_data
 def get_data(file_path):
