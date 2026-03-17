@@ -217,3 +217,270 @@ get_navs <- function(scheme_code){
     dt_navs <- dt_navs[nav != 0]
     return(dt_navs)
 }
+
+# ── NAV local cache ────────────────────────────────────────────────────────────
+
+NAV_CACHE_DIR <- './nav_cache'
+
+# Fetches NAV for a scheme, using a local RDS cache.
+# Re-fetches from mfapi.in only when the cached data doesn't cover `required_date`
+# (with a 7-day tolerance for weekends/holidays).
+get_cached_navs <- function(scheme_code, required_date = Sys.Date()) {
+    if (!dir.exists(NAV_CACHE_DIR)) dir.create(NAV_CACHE_DIR, recursive = TRUE)
+    cache_file <- file.path(NAV_CACHE_DIR, paste0(scheme_code, '.rds'))
+
+    if (file.exists(cache_file)) {
+        dt_cached <- readRDS(cache_file)
+        if (max(dt_cached$date) >= required_date - 7) {
+            return(dt_cached)
+        }
+    }
+    # Cache missing or stale — fetch from API and persist
+    tryCatch({
+        dt_navs <- get_navs(scheme_code)
+        saveRDS(dt_navs, cache_file)
+        dt_navs
+    }, error = function(e) {
+        if (file.exists(cache_file)) readRDS(cache_file) else NULL
+    })
+}
+
+# ── Fund name matching ─────────────────────────────────────────────────────────
+
+# Strips CAS-specific junk from the raw fund string stored in the `fund` column:
+#   - Folio/scheme prefix    e.g. "123TSGPG-"  or "K168D-"
+#   - ISIN suffix            e.g. "- ISIN: INF082J01069"
+#   - (formerly ...)  /  (Erstwhile ...)  parentheticals
+#   - (Non-Demat)
+#   - (Advisor: ...)  — may be unclosed if line was truncated
+#   - Registrar : CAMS  trailing text
+# Plan/option words (Regular, Direct, Growth, IDCW, etc.) are intentionally
+# kept because they identify distinct schemes with different NAVs.
+extract_fund_name <- function(name) {
+    name <- gsub("^[A-Z0-9]+\\s*-\\s*", "", name)               # folio prefix
+    name <- gsub("\\s*-?\\s*ISIN:.*$", "", name, ignore.case = TRUE)
+    name <- gsub("\\(formerly[^)]*\\)", "", name, ignore.case = TRUE)
+    name <- gsub("\\(Erstwhile[^)]*\\)", "", name, ignore.case = TRUE)
+    name <- gsub("\\(Non-Demat\\)", "", name, ignore.case = TRUE)
+    name <- gsub("\\(Advisor:.*", "", name, ignore.case = TRUE)  # unclosed paren ok
+    name <- gsub("\\s*Registrar\\s*:.*", "", name, ignore.case = TRUE)
+    trimws(name)
+}
+
+# Normalises only formatting — lowercase, collapse hyphens (off-shore→offshore),
+# collapse spaced single-letter abbreviations (U S→US), strip other punctuation.
+normalize_fund_name <- function(name) {
+    name <- tolower(name)
+    name <- gsub("-", "", name)                              # off-shore → offshore
+    name <- gsub("[^a-z0-9 ]", " ", name)                   # other punctuation → space
+    name <- gsub("\\s+", " ", trimws(name))
+    # Collapse adjacent single-letter words: "u s" → "us", "f i i" → "fii"
+    # Apply twice to handle runs of three single letters
+    name <- gsub("\\b([a-z]) ([a-z])\\b", "\\1\\2", name)
+    name <- gsub("\\b([a-z]) ([a-z])\\b", "\\1\\2", name)
+    name <- gsub("\\s+", " ", trimws(name))
+    name
+}
+
+# Returns a scheme code string, or NA_character_ if no match found.
+match_fund_to_scheme <- function(cas_fund_name, dt_mfs) {
+    cleaned  <- extract_fund_name(cas_fund_name)
+    norm_cas <- normalize_fund_name(cleaned)
+    norm_mfs <- sapply(as.character(dt_mfs$schemeName), normalize_fund_name)
+    codes    <- as.character(dt_mfs$schemeCode)
+
+    # 1. Exact normalised match
+    exact_idx <- which(norm_mfs == norm_cas)
+    if (length(exact_idx) > 0) return(codes[exact_idx[1]])
+
+    # 2. Approximate string match (handles "Direct Plan Growth" vs "Direct Growth" etc.)
+    approx_idx <- agrep(norm_cas, norm_mfs, ignore.case = TRUE, max.distance = 0.3)
+    if (length(approx_idx) > 0) return(codes[approx_idx[1]])
+
+    NA_character_
+}
+
+# ── Portfolio valuation at a given date ───────────────────────────────────────
+
+# Returns list(value = numeric, warnings = character vector).
+# Uses bal_units from the last transaction before target_date for each folio,
+# sums across folios per fund, then multiplies by NAV fetched from cache/API.
+portfolio_value_at <- function(dt_base, target_date, fund_scheme_map) {
+    funds   <- unique(dt_base[description != 'Cur Value']$fund)
+    total   <- 0
+    warns   <- character(0)
+
+    for (f in funds) {
+        prior <- dt_base[fund == f & date < target_date & description != 'Cur Value']
+        if (nrow(prior) == 0) next
+
+        # Sum last bal_units per folio (units are folio-specific)
+        folios      <- unique(prior$folio)
+        units_held  <- sum(sapply(folios, function(fol) {
+            rows <- prior[folio == fol][order(date)]
+            if (nrow(rows) == 0) return(0)
+            rows[.N]$bal_units
+        }))
+        if (units_held <= 0) next
+
+        scheme_code <- fund_scheme_map[[f]]
+        if (is.na(scheme_code)) {
+            warns <- c(warns, paste0("No scheme match for fund: ", f))
+            next
+        }
+
+        dt_navs <- get_cached_navs(scheme_code, required_date = target_date)
+        if (is.null(dt_navs) || nrow(dt_navs) == 0) {
+            warns <- c(warns, paste0("NAV fetch failed for: ", f))
+            next
+        }
+        nav_rows <- dt_navs[date <= target_date]
+        if (nrow(nav_rows) == 0) {
+            warns <- c(warns, paste0("No NAV available for ", f, " on or before ", target_date))
+            next
+        }
+        total <- total + units_held * nav_rows[.N]$nav
+    }
+    list(value = total, warnings = warns)
+}
+
+# ── NAV cache pre-warmer ───────────────────────────────────────────────────────
+
+# Iterates every fund in fund_scheme_map, pre-warms the RDS cache, and returns
+# a data.table summarising what happened for each fund.
+# Columns: Fund, SchemeCode, Source, NAVsUpTo
+#   Source values: "Cache", "API - new", "API - refreshed",
+#                  "No match", "Fetch failed", "Cache (stale, fetch failed)"
+# progress_fn(fund_name_raw) is called before each fund so the caller can
+# update a Shiny progress bar.
+pre_warm_navs <- function(fund_scheme_map, required_date = Sys.Date(),
+                          progress_fn = NULL) {
+    if (!dir.exists(NAV_CACHE_DIR)) dir.create(NAV_CACHE_DIR, recursive = TRUE)
+
+    rows <- lapply(names(fund_scheme_map), function(f) {
+        if (!is.null(progress_fn)) progress_fn(f)
+
+        scheme_code <- fund_scheme_map[[f]]
+        clean_name  <- extract_fund_name(f)
+
+        if (is.na(scheme_code)) {
+            return(data.table(Fund       = clean_name,
+                              SchemeCode = NA_character_,
+                              Source     = 'No match',
+                              NAVsUpTo   = NA_character_))
+        }
+
+        cache_file <- file.path(NAV_CACHE_DIR, paste0(scheme_code, '.rds'))
+
+        if (file.exists(cache_file)) {
+            dt_cached  <- readRDS(cache_file)
+            max_cached <- max(dt_cached$date)
+            if (max_cached >= required_date - 7) {
+                return(data.table(Fund       = clean_name,
+                                  SchemeCode = scheme_code,
+                                  Source     = 'Cache',
+                                  NAVsUpTo   = as.character(max_cached)))
+            }
+            source_label <- 'API - refreshed'
+        } else {
+            source_label <- 'API - new'
+        }
+
+        tryCatch({
+            dt_navs <- get_navs(scheme_code)
+            saveRDS(dt_navs, cache_file)
+            data.table(Fund       = clean_name,
+                       SchemeCode = scheme_code,
+                       Source     = source_label,
+                       NAVsUpTo   = as.character(max(dt_navs$date)))
+        }, error = function(e) {
+            if (file.exists(cache_file)) {
+                dt_fb <- readRDS(cache_file)
+                data.table(Fund       = clean_name,
+                           SchemeCode = scheme_code,
+                           Source     = 'Cache (stale, fetch failed)',
+                           NAVsUpTo   = as.character(max(dt_fb$date)))
+            } else {
+                data.table(Fund       = clean_name,
+                           SchemeCode = scheme_code,
+                           Source     = 'Fetch failed',
+                           NAVsUpTo   = NA_character_)
+            }
+        })
+    })
+    rbindlist(rows, fill = TRUE)
+}
+
+# ── Portfolio value curve ──────────────────────────────────────────────────────
+
+# Samples portfolio value and cumulative net investment at monthly intervals.
+# Returns a data.table with columns:
+#   date            – sample date
+#   portfolio_value – total value of all holdings (units × NAV)
+#   net_invested    – cumulative cash invested minus redemptions up to that date
+#   gains           – portfolio_value − net_invested  (can be negative)
+#
+# Relies on the RDS NAV cache; call after pre_warm_navs() for speed.
+get_portfolio_curve <- function(dt_base, fund_scheme_map, sample_by = 'month') {
+    funds      <- unique(dt_base[description != 'Cur Value']$fund)
+    end_date   <- max(dt_base[description == 'Cur Value']$date)
+    start_date <- min(dt_base[description != 'Cur Value']$date)
+
+    sample_dates <- seq.Date(start_date, end_date, by = sample_by)
+    if (!(end_date %in% sample_dates)) sample_dates <- c(sample_dates, end_date)
+    n_dates <- length(sample_dates)
+
+    dt_sample <- data.table(date = sample_dates)
+    setkey(dt_sample, date)
+
+    portfolio_values <- numeric(n_dates)
+
+    for (f in funds) {
+        scheme_code <- fund_scheme_map[[f]]
+        if (is.na(scheme_code)) next
+
+        dt_navs <- get_cached_navs(scheme_code, required_date = end_date)
+        if (is.null(dt_navs) || nrow(dt_navs) == 0) next
+        setkey(dt_navs, date)
+
+        fund_txns <- dt_base[fund == f & description != 'Cur Value'][order(date)]
+        folios    <- unique(fund_txns$folio)
+
+        # Units held at each sample date: last bal_units per folio, rolled forward
+        units_vec <- numeric(n_dates)
+        for (fol in folios) {
+            # One row per date (take last transaction if multiple on same day)
+            folio_bal <- fund_txns[folio == fol, .SD[.N], by = date][, .(date, bal_units)]
+            if (nrow(folio_bal) == 0) next
+            setkey(folio_bal, date)
+            joined    <- folio_bal[dt_sample, roll = TRUE]
+            bal       <- joined$bal_units
+            bal[is.na(bal)] <- 0
+            units_vec <- units_vec + bal
+        }
+
+        # NAV at each sample date, rolled forward over weekends/holidays
+        nav_joined <- dt_navs[dt_sample, roll = TRUE]
+        nav_vec    <- nav_joined$nav
+        nav_vec[is.na(nav_vec)] <- 0
+
+        portfolio_values <- portfolio_values + units_vec * nav_vec
+    }
+
+    # Cumulative net investment (investments positive, redemptions negative)
+    daily_net <- dt_base[description != 'Cur Value',
+                         .(daily_amt = sum(amt)), by = date][order(date)]
+    daily_net[, cum_amt := cumsum(daily_amt)]
+    setkey(daily_net, date)
+    cum_joined   <- daily_net[dt_sample, roll = TRUE]
+    cum_invested <- cum_joined$cum_amt
+    cum_invested[is.na(cum_invested)] <- 0
+    cum_invested <- pmax(cum_invested, 0)   # clamp: can't invest negative
+
+    data.table(
+        date            = sample_dates,
+        portfolio_value = round(portfolio_values, 2),
+        net_invested    = round(cum_invested, 2),
+        gains           = round(portfolio_values - cum_invested, 2)
+    )
+}
