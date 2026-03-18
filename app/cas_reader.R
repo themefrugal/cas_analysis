@@ -1,5 +1,5 @@
 # From: https://stackoverflow.com/questions/4090169/elegant-way-to-check-for-missing-packages-and-install-them
-list.of.packages <- c("rjson", "data.table", "pdftools", "zeallot", "stringr", "dplyr", "tidyr", "tvm", "DBI", "RSQLite")
+list.of.packages <- c("rjson", "data.table", "pdftools", "zeallot", "stringr", "dplyr", "tidyr", "tvm", "DBI", "RSQLite", "httr")
 
 for (package in list.of.packages){
     if(!require(package, character.only=TRUE)){
@@ -300,13 +300,23 @@ ensure_isin_db <- function() {
         as.numeric(Sys.time() - file.mtime(ISIN_DB_PATH), units = 'days') > ISIN_DB_MAX_DAYS
 
     if (needs_download) {
-        tryCatch(
-            download.file(ISIN_DB_URL, ISIN_DB_PATH, mode = 'wb', quiet = TRUE),
-            error = function(e) {
-                if (!file.exists(ISIN_DB_PATH))
-                    warning("Could not download isin.db: ", conditionMessage(e))
+        # casparser.atomcoder.com requires these headers — returns 403 without them.
+        # Mimics the request format used by the casparser-isin Python library.
+        tryCatch({
+            resp <- httr::GET(ISIN_DB_URL,
+                httr::add_headers(
+                    `User-Agent`         = "casparser-isin 2025.3.1",
+                    `X-origin-casparser` = "true"
+                ))
+            if (httr::status_code(resp) == 200L) {
+                writeBin(httr::content(resp, "raw"), ISIN_DB_PATH)
+            } else if (!file.exists(ISIN_DB_PATH)) {
+                warning("Could not download isin.db: HTTP ", httr::status_code(resp))
             }
-        )
+        }, error = function(e) {
+            if (!file.exists(ISIN_DB_PATH))
+                warning("Could not download isin.db: ", conditionMessage(e))
+        })
     }
     invisible(file.exists(ISIN_DB_PATH))
 }
