@@ -141,6 +141,33 @@ function(input, output, session) {
         get_portfolio_curve(dt_base_txns(), fund_scheme_map())
     })
 
+    # Rolling inception-to-date XIRR sampled at each monthly point in the curve.
+    # Reuses dt_portfolio_curve() values as the synthetic closing row — no extra
+    # NAV fetches needed.  Computed once per PDF load.
+    dt_xirr_curve <- eventReactive(input$btn_proc, {
+        dt_base  <- dt_base_txns()
+        dt_curve <- dt_portfolio_curve()
+        dt_txns  <- dt_base[description != 'Cur Value', .(date, amt)]
+
+        xirr_vals <- sapply(seq_len(nrow(dt_curve)), function(i) {
+            d  <- dt_curve$date[i]
+            pv <- dt_curve$portfolio_value[i]
+            if (is.na(pv) || pv <= 0) return(NA_real_)
+
+            prior <- dt_txns[date <= d]
+            if (nrow(prior) == 0) return(NA_real_)
+
+            dt_cf <- rbind(prior, data.table(date = d, amt = -pv))
+            if (!any(dt_cf$amt > 0) || !any(dt_cf$amt < 0)) return(NA_real_)
+
+            dt_cf[, days  := as.numeric(d - date)]
+            dt_cf[, years := days / 365.25]
+            XIRR(dt_cf)
+        })
+
+        data.table(date = dt_curve$date, xirr = xirr_vals * 100)
+    })
+
     period_warnings <- reactiveVal(character(0))
 
     # Gate: FALSE until input$date_range has been auto-populated with real dates.
@@ -501,6 +528,53 @@ function(input, output, session) {
                 title     = 'Portfolio Growth Over Time',
                 xaxis     = list(title = ''),
                 yaxis     = list(title = 'Value (\u20b9)', tickformat = ',.0f'),
+                hovermode = 'x unified',
+                legend    = list(orientation = 'h', x = 0, y = -0.12),
+                margin    = list(t = 60, b = 60)
+            )
+    })
+
+    output$xirr_over_time <- renderPlotly({
+        dt <- dt_xirr_curve()
+        dt <- dt[!is.na(xirr)]
+        req(nrow(dt) > 0)
+
+        # Colour the line: green above 0, red below (via a zero-baseline area)
+        plot_ly(dt, x = ~date) %>%
+            add_trace(
+                y             = ~pmax(xirr, 0),
+                name          = 'XIRR (positive)',
+                type          = 'scatter',
+                mode          = 'none',
+                fill          = 'tozeroy',
+                fillcolor     = 'rgba(44, 160, 44, 0.35)',
+                showlegend    = FALSE,
+                hoverinfo     = 'skip'
+            ) %>%
+            add_trace(
+                y             = ~pmin(xirr, 0),
+                name          = 'XIRR (negative)',
+                type          = 'scatter',
+                mode          = 'none',
+                fill          = 'tozeroy',
+                fillcolor     = 'rgba(214, 39, 40, 0.35)',
+                showlegend    = FALSE,
+                hoverinfo     = 'skip'
+            ) %>%
+            add_trace(
+                y             = ~xirr,
+                name          = 'XIRR',
+                type          = 'scatter',
+                mode          = 'lines',
+                line          = list(color = 'rgba(31, 119, 180, 1)', width = 2),
+                hovertemplate = 'XIRR: %{y:.2f}%<extra></extra>'
+            ) %>%
+            layout(
+                title     = 'Portfolio XIRR Over Time (Inception to Date)',
+                xaxis     = list(title = ''),
+                yaxis     = list(title = 'XIRR (%)', tickformat = '.1f',
+                                 zeroline = TRUE, zerolinecolor = '#888',
+                                 zerolinewidth = 1),
                 hovermode = 'x unified',
                 legend    = list(orientation = 'h', x = 0, y = -0.12),
                 margin    = list(t = 60, b = 60)

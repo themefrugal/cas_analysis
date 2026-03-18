@@ -45,7 +45,9 @@ navbarPage(
     tabPanel('Portfolio',
         fluidPage(
             br(),
-            plotlyOutput('portfolio_curve', height = '520px')
+            plotlyOutput('portfolio_curve', height = '480px'),
+            br(),
+            plotlyOutput('xirr_over_time', height = '380px')
         )
     ),
     tabPanel('Transactions',
