@@ -39,19 +39,38 @@ mnav <- memoise(compose(get_navs, get_scheme_code))
 
 get_fund_summary_dt <- function(dt_all, fund_name) {
     dt_fund <- dt_all[fund == fund_name]
+
+    # Recalculate days/years using THIS fund's own max date, not the
+    # portfolio-wide max date inherited from dt_filtered_txns().
+    if (nrow(dt_fund) > 0) {
+        dt_fund[, days  := as.numeric(max(dt_fund$date) - date)]
+        dt_fund[, years := days / 365.25]
+    }
+
     cur_value <- -sum(dt_fund[description == 'Cur Value']$amt)
     cash_in   <- sum(dt_fund[amt > 0]$amt)
     cash_out  <- -sum(dt_fund[amt < 0]$amt)
     xirr_val  <- XIRR(dt_fund)
     txn_dates <- dt_fund[description != 'Cur Value']$date
+
+    # Proportional average-cost allocation for realized/unrealized split
+    redemptions <- cash_out - cur_value
+    total_out   <- redemptions + cur_value
+    cost_of_redemptions <- if (total_out > 0) cash_in * redemptions / total_out else 0
+    realized_gains   <- redemptions - cost_of_redemptions
+    unrealized_gains <- cur_value - (cash_in - cost_of_redemptions)
+
+    # Propagate NA rather than computing NA * 100
+    xirr_pct <- if (is.na(xirr_val)) NA_real_ else xirr_val * 100
+
     data.frame(
         Fund            = fund_name,
         Cur.Value       = cur_value,
         Invested        = cash_in,
-        Redeemed        = cash_out - cur_value,
-        RealizedGains   = ifelse(cur_value != 0, 0, cash_out - cash_in),
-        UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
-        XIRR            = xirr_val * 100,
+        Redeemed        = redemptions,
+        RealizedGains   = realized_gains,
+        UnrealizedGains = unrealized_gains,
+        XIRR            = xirr_pct,
         StartDate       = if (length(txn_dates) > 0) min(txn_dates) else NA,
         RecentDate      = max(dt_fund$date)
     )
@@ -75,14 +94,22 @@ function(input, output, session) {
     })
 
     dt_base_txns <- eventReactive(input$btn_proc, {
-        init_proc()
-        get_portfolio_transactions(folio_lines)
+        withProgress(message = 'Parsing CAS PDF...', value = 0.5, {
+            init_proc()
+            get_portfolio_transactions(folio_lines)
+        })
     })
 
-    # Built once per PDF load — pure string matching, no API calls
+    # Built once per PDF load — pure string matching, no API calls.
+    # Pre-computes normalized scheme names ONCE (6,000+ entries), then passes
+    # them to match_fund_to_scheme for each fund.  Previously the normalization
+    # was repeated inside match_fund_to_scheme for every fund, causing ~120,000+
+    # redundant regex operations.
     fund_scheme_map <- eventReactive(input$btn_proc, {
-        funds <- unique(dt_base_txns()[description != 'Cur Value']$fund)
-        map   <- lapply(funds, function(f) match_fund_to_scheme(f, dt_mfs_all))
+        funds    <- unique(dt_base_txns()[description != 'Cur Value']$fund)
+        norm_mfs <- sapply(as.character(dt_mfs_all$schemeName), normalize_fund_name)
+        codes    <- as.character(dt_mfs_all$schemeCode)
+        map      <- lapply(funds, function(f) match_fund_to_scheme(f, norm_mfs, codes))
         names(map) <- funds
         map
     })
@@ -127,22 +154,19 @@ function(input, output, session) {
         analysis_ready(FALSE)
     }, ignoreInit = TRUE)
 
-    # Populate the date range from the loaded data.
+    # Populate the date range from the loaded data and open the analysis gate.
+    # analysis_ready(TRUE) fires here — after dt_base_txns() resolves with real
+    # data — so no sentinel date check is needed.
+    # NAV pre-warming (nav_status_log) is NOT forced here; it runs lazily when
+    # the NAV Status tab is viewed.  This keeps the UI responsive.
     observe({
         dt <- dt_base_txns()
-        non_cv <- dt[description != 'Cur Value']$date
+        non_cv    <- dt[description != 'Cur Value']$date
+        cas_close <- max(dt[description == 'Cur Value']$date)
         updateDateRangeInput(session, "date_range",
-            start = min(non_cv), end = max(non_cv))
-    })
-
-    # Open the gate once input$date_range reflects real data dates (Flush 2).
-    # ignoreInit = TRUE skips the app-startup firing; the "1900-01-01" guard
-    # ensures we don't open the gate on the sentinel value itself.
-    observeEvent(input$date_range, {
-        req(input$btn_proc > 0)
-        req(input$date_range[1] > as.Date("1900-01-01"))
+            start = min(non_cv), end = cas_close)
         analysis_ready(TRUE)
-    }, ignoreInit = TRUE)
+    })
 
     dt_filtered_txns <- reactive({
         dt <- dt_base_txns()
@@ -212,6 +236,15 @@ function(input, output, session) {
             all_warns <- c(all_warns, res$warnings)
         }
 
+        # Also surface funds with no NAV scheme match — they are silently
+        # excluded from start/end valuations, which affects period XIRR and gains.
+        fsm <- fund_scheme_map()
+        unmatched <- names(Filter(is.na, fsm))
+        if (length(unmatched) > 0) {
+            all_warns <- c(all_warns,
+                paste0("No NAV match (excluded from valuation): ",
+                       sapply(unmatched, extract_fund_name)))
+        }
         period_warnings(all_warns)
 
         data.frame(
@@ -370,7 +403,9 @@ function(input, output, session) {
     })
 
     output$pf_xirr <- renderText({
-        paste0("Overall Portfolio XIRR: ", round(dt_port_xirr() * 100, 3), "%")
+        val <- dt_port_xirr()
+        if (is.na(val)) return("Overall Portfolio XIRR: N/A")
+        paste0("Overall Portfolio XIRR: ", round(val * 100, 3), "%")
     })
 
     output$period_xirr <- renderText({
@@ -385,7 +420,7 @@ function(input, output, session) {
     })
 
     output$text_fol_sum <- renderText({
-        ifelse(input$btn_proc, 'Folio Level Summary', '')
+        ifelse(input$btn_proc, 'Fund Level Summary', '')
     })
 
     output$portfolio_curve <- renderPlotly({

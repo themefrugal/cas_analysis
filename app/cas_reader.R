@@ -18,10 +18,10 @@ XIRR <- function(dt_txn){
         return (unx$root)
     },
     error = function(cond){
-        return (0)
+        return (NA_real_)
     },
     warning = function(cond){
-        return (0)
+        return (NA_real_)
     },
     finally = {
 
@@ -126,28 +126,39 @@ get_mf_summary <- function(dt_txns, folio_ord_num, folio_id=''){
     first_date <- min(dt_txns$date)
     last_date <- max(dt_txns$date)
 
-    closing_line <- gsub(closing_line_pattern, '\\1 \\2 \\3 \\4', all_lines[closing_lines[folio_ord_num]])
-    closing_strings <- str_split(closing_line, '\\s+')[[1]]
-    #print(closing_strings)
-    cur_value <- as.numeric(gsub(',', '', closing_strings[4]))
+    # Extract cur_value from the 'Cur Value' row already present in dt_txns.
+    # This avoids the closing_lines[-1] R-indexing trap when folio_ord_num == -1
+    # (negative indexing in R removes elements rather than selecting them).
+    cur_value <- -sum(dt_txns[description == 'Cur Value']$amt)
 
     xirr_val <- XIRR(dt_txns)
-    cash_in <- sum(dt_txns[amt > 0]$amt)
+    cash_in  <- sum(dt_txns[amt > 0]$amt)
     cash_out <- -sum(dt_txns[amt < 0]$amt)
-    # Realized and Unrealized Gains yet to be refined
+
+    # Proportional average-cost allocation for realized/unrealized split.
+    # Handles fully-redeemed, never-redeemed, and partial-redemption cases correctly.
+    redemptions <- cash_out - cur_value
+    total_out   <- redemptions + cur_value
+    cost_of_redemptions <- if (total_out > 0) cash_in * redemptions / total_out else 0
+    realized_gains   <- redemptions - cost_of_redemptions
+    unrealized_gains <- cur_value - (cash_in - cost_of_redemptions)
+
+    # Propagate NA rather than multiplying NA * 100
+    xirr_pct <- if (is.na(xirr_val)) NA_real_ else xirr_val * 100
+
     if (folio_ord_num == -1){
         df_mf <- rbind(data.frame(Folio = folio_id, Cur.Value = cur_value,
-            Invested = cash_in, Redeemed = cash_out - cur_value,
-            RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
-            UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
-            XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
+            Invested = cash_in, Redeemed = redemptions,
+            RealizedGains = realized_gains,
+            UnrealizedGains = unrealized_gains,
+            XIRR = xirr_pct, StartDate=first_date, RecentDate=last_date))
     } else {
         c(fund_part, advisor_part) %<-% fund_and_advisor(folio_ord_num)
         df_mf <- rbind(data.frame(Fund = fund_part, Cur.Value = cur_value,
-            Invested = cash_in, Redeemed = cash_out - cur_value,
-            RealizedGains = ifelse(cur_value != 0, 0, cash_out - cash_in),
-            UnrealizedGains = ifelse(cur_value != 0, cash_out - cash_in, 0),
-            XIRR = xirr_val * 100, StartDate=first_date, RecentDate=last_date))
+            Invested = cash_in, Redeemed = redemptions,
+            RealizedGains = realized_gains,
+            UnrealizedGains = unrealized_gains,
+            XIRR = xirr_pct, StartDate=first_date, RecentDate=last_date))
     }
     return (df_mf)
 }
@@ -160,6 +171,14 @@ get_mf_table <- function(folio_ord_num){
 
 get_mf_table_for_txns <- function(dt_all_txns, folio_id){
     dt_txns <- dt_all_txns[folio == folio_id]
+    # Recalculate days/years using THIS folio's own max date.
+    # dt_all_txns carries portfolio-wide years (from get_portfolio_transactions),
+    # which makes XIRR wrong when the folio's last transaction differs from the
+    # portfolio's last transaction.
+    if (nrow(dt_txns) > 0) {
+        dt_txns[, days  := as.numeric(max(dt_txns$date) - date)]
+        dt_txns[, years := days / 365.25]
+    }
     dt_mf_summary <- get_mf_summary(dt_txns, -1, folio_id)
     return (dt_mf_summary)
 }
@@ -195,8 +214,27 @@ get_select_transactions <- function(selectors, presence){
 
 get_navs <- function(scheme_code){
     mf_url <- paste0('https://api.mfapi.in/mf/', scheme_code)
-    # Directly using readLines on the URL
-    json_data <- fromJSON(paste(readLines(mf_url), collapse=""))
+
+    # Retry up to 3 times with exponential backoff (1s, 2s) on transient failures.
+    # warn=FALSE suppresses readLines "incomplete final line" warnings that would
+    # otherwise be swallowed by tryCatch instead of the real error condition.
+    max_attempts <- 3L
+    json_data    <- NULL
+    last_error   <- NULL
+    for (attempt in seq_len(max_attempts)) {
+        tryCatch({
+            json_data <- fromJSON(paste(readLines(mf_url, warn = FALSE), collapse=""))
+        }, error = function(e) {
+            last_error <<- e
+        })
+        if (!is.null(json_data)) break
+        if (attempt < max_attempts) Sys.sleep(2 ^ (attempt - 1))   # 1s, 2s
+    }
+    if (is.null(json_data)) {
+        stop(paste0("Failed to fetch NAV data for scheme ", scheme_code,
+                    " after ", max_attempts, " attempts. Last error: ",
+                    conditionMessage(last_error)))
+    }
 
     # MF Info
     dt_mf_info <- data.table(t(data.frame(unlist(json_data[[1]]))))
@@ -212,8 +250,9 @@ get_navs <- function(scheme_code){
     dt_all_dates <- data.table(all_dates)
     names(dt_all_dates) <- 'date'
     dt_navs <- merge(dt_all_dates, dt_navs, by='date', all.x=TRUE)
-    # Get the next observed value carried backward for missing days ("nocb")
-    dt_navs$nav <- nafill(dt_navs$nav, type='nocb')
+    # locf (last observation carried forward): weekends/holidays inherit the
+    # previous trading day's NAV — no lookahead bias (nocb used forward prices).
+    dt_navs$nav <- nafill(dt_navs$nav, type='locf')
     dt_navs <- dt_navs[nav != 0]
     return(dt_navs)
 }
@@ -269,6 +308,8 @@ extract_fund_name <- function(name) {
 
 # Normalises only formatting — lowercase, collapse hyphens (off-shore→offshore),
 # collapse spaced single-letter abbreviations (U S→US), strip other punctuation.
+# Also normalises "fund of fund(s)" → "fof" and inserts a space at
+# letter/digit boundaries (nasdaq100 → nasdaq 100) so CAS names match mfapi.in.
 normalize_fund_name <- function(name) {
     name <- tolower(name)
     name <- gsub("-", "", name)                              # off-shore → offshore
@@ -278,16 +319,30 @@ normalize_fund_name <- function(name) {
     # Apply twice to handle runs of three single letters
     name <- gsub("\\b([a-z]) ([a-z])\\b", "\\1\\2", name)
     name <- gsub("\\b([a-z]) ([a-z])\\b", "\\1\\2", name)
+    # Insert space between letters and digits: "nasdaq100" → "nasdaq 100"
+    name <- gsub("([a-z])([0-9])", "\\1 \\2", name)
+    name <- gsub("([0-9])([a-z])", "\\1 \\2", name)
+    # Normalise "fund of fund" / "fund of funds" → "fof"
+    name <- gsub("\\bfund of funds?\\b", "fof", name)
     name <- gsub("\\s+", " ", trimws(name))
     name
 }
 
+# Word-overlap (Jaccard) score between two normalised name strings.
+# Ignores extra descriptors present in one name but not the other.
+fund_name_jaccard <- function(a, b) {
+    wa <- unique(strsplit(a, " ")[[1]])
+    wb <- unique(strsplit(b, " ")[[1]])
+    length(intersect(wa, wb)) / length(union(wa, wb))
+}
+
 # Returns a scheme code string, or NA_character_ if no match found.
-match_fund_to_scheme <- function(cas_fund_name, dt_mfs) {
+# `norm_mfs` and `codes` are pre-computed vectors (normalized scheme names and
+# their corresponding scheme codes).  Pre-computing avoids redundant
+# normalization of 6,000+ scheme names on every call.
+match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
     cleaned  <- extract_fund_name(cas_fund_name)
     norm_cas <- normalize_fund_name(cleaned)
-    norm_mfs <- sapply(as.character(dt_mfs$schemeName), normalize_fund_name)
-    codes    <- as.character(dt_mfs$schemeCode)
 
     # 1. Exact normalised match
     exact_idx <- which(norm_mfs == norm_cas)
@@ -296,6 +351,14 @@ match_fund_to_scheme <- function(cas_fund_name, dt_mfs) {
     # 2. Approximate string match (handles "Direct Plan Growth" vs "Direct Growth" etc.)
     approx_idx <- agrep(norm_cas, norm_mfs, ignore.case = TRUE, max.distance = 0.3)
     if (length(approx_idx) > 0) return(codes[approx_idx[1]])
+
+    # 3. Word-overlap fallback — handles cases where CAS embeds extra descriptors
+    #    (e.g. "US Specific Equity Passive") absent from the mfapi.in scheme name.
+    #    Requires ≥ 0.6 Jaccard similarity to avoid false positives.
+    scores    <- sapply(norm_mfs, fund_name_jaccard, b = norm_cas)
+    best_idx  <- which.max(scores)
+    if (length(best_idx) > 0 && scores[best_idx] >= 0.6)
+        return(codes[best_idx])
 
     NA_character_
 }
