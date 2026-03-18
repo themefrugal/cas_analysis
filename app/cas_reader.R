@@ -360,15 +360,8 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
         return(codes[best_idx])
 
     # 4. mfapi.in search API fallback — handles funds absent from the local
-    #    mf_codes snapshot.  Try the ISIN embedded in the raw CAS string first
-    #    (most precise), then fall back to first-4-words keyword search.
-    isin_match <- regmatches(cas_fund_name,
-                             regexpr("INF[A-Z0-9]{9}", cas_fund_name, ignore.case = TRUE))
-    query <- if (length(isin_match) == 1L && nchar(isin_match) > 0) {
-        isin_match
-    } else {
-        paste(head(strsplit(cleaned, "\\s+")[[1]], 4), collapse = " ")
-    }
+    #    mf_codes snapshot.  Searches by first 4 words of the cleaned fund name.
+    query      <- paste(head(strsplit(cleaned, "\\s+")[[1]], 4), collapse = " ")
     search_url <- paste0("https://api.mfapi.in/mf/search?q=", URLencode(query))
     tryCatch({
         results <- fromJSON(paste(readLines(search_url, warn = FALSE), collapse = ""))
