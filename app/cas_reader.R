@@ -328,14 +328,6 @@ normalize_fund_name <- function(name) {
     name
 }
 
-# Word-overlap (Jaccard) score between two normalised name strings.
-# Ignores extra descriptors present in one name but not the other.
-fund_name_jaccard <- function(a, b) {
-    wa <- unique(strsplit(a, " ")[[1]])
-    wb <- unique(strsplit(b, " ")[[1]])
-    length(intersect(wa, wb)) / length(union(wa, wb))
-}
-
 # Returns a scheme code string, or NA_character_ if no match found.
 # `norm_mfs` and `codes` are pre-computed vectors (normalized scheme names and
 # their corresponding scheme codes).  Pre-computing avoids redundant
@@ -343,6 +335,7 @@ fund_name_jaccard <- function(a, b) {
 match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
     cleaned  <- extract_fund_name(cas_fund_name)
     norm_cas <- normalize_fund_name(cleaned)
+    cas_words <- unique(strsplit(norm_cas, " ")[[1]])
 
     # 1. Exact normalised match
     exact_idx <- which(norm_mfs == norm_cas)
@@ -352,13 +345,46 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
     approx_idx <- agrep(norm_cas, norm_mfs, ignore.case = TRUE, max.distance = 0.3)
     if (length(approx_idx) > 0) return(codes[approx_idx[1]])
 
-    # 3. Word-overlap fallback — handles cases where CAS embeds extra descriptors
-    #    (e.g. "US Specific Equity Passive") absent from the mfapi.in scheme name.
-    #    Requires ≥ 0.6 Jaccard similarity to avoid false positives.
-    scores    <- sapply(norm_mfs, fund_name_jaccard, b = norm_cas)
-    best_idx  <- which.max(scores)
-    if (length(best_idx) > 0 && scores[best_idx] >= 0.6)
+    # 3. Overlap coefficient — fraction of mfapi name words found in CAS name.
+    #    Better than Jaccard when CAS names embed extra descriptors absent from
+    #    mfapi names (e.g. "US Specific Equity Passive" in Navi Nasdaq100 FoF).
+    #    Requires ≥ 4 matching words AND ≥ 80% of mfapi name words covered.
+    ov_scores <- sapply(norm_mfs, function(m) {
+        mw      <- unique(strsplit(m, " ")[[1]])
+        n_inter <- length(intersect(cas_words, mw))
+        if (n_inter < 4L) return(0)
+        n_inter / length(mw)
+    })
+    best_idx <- which.max(ov_scores)
+    if (length(best_idx) > 0 && ov_scores[best_idx] >= 0.8)
         return(codes[best_idx])
+
+    # 4. mfapi.in search API fallback — handles funds absent from the local
+    #    mf_codes snapshot.  Try the ISIN embedded in the raw CAS string first
+    #    (most precise), then fall back to first-4-words keyword search.
+    isin_match <- regmatches(cas_fund_name,
+                             regexpr("INF[A-Z0-9]{9}", cas_fund_name, ignore.case = TRUE))
+    query <- if (length(isin_match) == 1L && nchar(isin_match) > 0) {
+        isin_match
+    } else {
+        paste(head(strsplit(cleaned, "\\s+")[[1]], 4), collapse = " ")
+    }
+    search_url <- paste0("https://api.mfapi.in/mf/search?q=", URLencode(query))
+    tryCatch({
+        results <- fromJSON(paste(readLines(search_url, warn = FALSE), collapse = ""))
+        if (length(results) == 0) return(NA_character_)
+        api_names  <- sapply(results, function(r) normalize_fund_name(r$schemeName))
+        api_codes  <- sapply(results, function(r) as.character(r$schemeCode))
+        api_scores <- sapply(api_names, function(m) {
+            mw      <- unique(strsplit(m, " ")[[1]])
+            n_inter <- length(intersect(cas_words, mw))
+            if (n_inter < 4L) return(0)
+            n_inter / length(mw)
+        })
+        api_best <- which.max(api_scores)
+        if (length(api_best) > 0 && api_scores[api_best] >= 0.8)
+            return(api_codes[api_best])
+    }, error = function(e) NULL)
 
     NA_character_
 }
