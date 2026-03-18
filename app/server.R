@@ -377,12 +377,14 @@ function(input, output, session) {
         paste("Warning:", paste(w, collapse = "\n"))
     })
 
-    output$benchmark <- DT::renderDataTable(
-        datatable(dt_bm_table(), rownames = FALSE,
+    output$benchmark <- DT::renderDataTable({
+        dt <- dt_bm_table()
+        req(nrow(dt) > 0)
+        datatable(dt, rownames = FALSE,
                   options = list(dom = 't', ordering = FALSE)) %>%
             formatRound(columns = c('Invested', 'BM.Value', 'BM.Gains', 'BenchmarkXIRR%'),
                         digits = 2)
-    )
+    })
 
     output$summary <- DT::renderDataTable(
         datatable(dt_mf_xirrs(), filter='top', options = list(pageLength = 25)) %>%
