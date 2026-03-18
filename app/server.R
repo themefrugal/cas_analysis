@@ -259,47 +259,76 @@ function(input, output, session) {
         start_d   <- input$date_range[1]
         end_d     <- input$date_range[2]
         dt_base   <- dt_base_txns()
-        cas_close <- max(dt_base[description == 'Cur Value']$date)
+        first_txn <- min(dt_base[description != 'Cur Value']$date)
 
-        # Transactions within the analysis period only (no Cur Value rows)
-        dt_inv_txns <- dt_filtered_txns()[description != 'Cur Value',
-                                          .(date, description, amt)]
-        invested <- sum(dt_inv_txns[amt > 0]$amt)
+        # All non-CurValue transactions (needed to compute pre-period holdings)
+        dt_all_inv    <- dt_base[description != 'Cur Value', .(date, amt)]
+        # Only transactions inside the analysis period
+        dt_period_inv <- dt_filtered_txns()[description != 'Cur Value', .(date, amt)]
 
         list_benchmarks <- list()
         for (mf_name in input$mf_name) {
             dt_navs <- mnav(mf_name)
 
-            # Mirror the portfolio's period transactions into the benchmark fund
-            dt_bm_txns <- merge(dt_inv_txns, dt_navs, by = 'date')
-            dt_bm_txns[, units := amt / nav]
-            total_units <- -sum(dt_bm_txns$units)   # negative: net units held (sign convention)
+            # ── Benchmark start value ─────────────────────────────────────────
+            # Mirrors portfolio dt_period_xirr: if period starts from the very
+            # beginning there is no prior position; otherwise accumulate units
+            # from all pre-period transactions and value them at start_d NAV.
+            if (start_d <= first_txn) {
+                bm_start_val   <- 0
+                bm_start_units <- 0
+            } else {
+                pre_bm         <- merge(dt_all_inv[date < start_d], dt_navs, by = 'date')
+                bm_start_units <- sum(pre_bm$units <- pre_bm$amt / pre_bm$nav)
+                nav_at_start   <- dt_navs[date <= start_d]
+                if (nrow(nav_at_start) == 0) next
+                bm_start_val   <- bm_start_units * nav_at_start[.N]$nav
+            }
 
-            # Benchmark value at analysis period END (not CAS close).
-            # Use the last available NAV on or before end_d.
-            nav_at_end <- dt_navs[date <= end_d]
-            if (nrow(nav_at_end) == 0 || total_units == 0) next
-            end_nav    <- nav_at_end[.N]$nav
-            end_date   <- nav_at_end[.N]$date
-            bm_value   <- total_units * end_nav     # negative (XIRR sign convention)
+            # ── Period transactions in benchmark units ────────────────────────
+            dt_period_bm  <- merge(dt_period_inv, dt_navs, by = 'date')
+            dt_period_bm[, units := amt / nav]
+            period_units  <- sum(dt_period_bm$units)
 
-            # Synthetic closing row at period end
-            dt_bm_final <- rbindlist(list(
-                dt_bm_txns,
-                data.table(date = end_date, description = 'BM Cur Value',
-                           amt = bm_value, nav = end_nav, units = total_units)
-            ))
-            dt_bm_final[, days  := as.numeric(max(dt_bm_final$date) - date)]
-            dt_bm_final[, years := days / 365.25]
-            bm_xirr <- XIRR(dt_bm_final)
+            # ── Benchmark end value ───────────────────────────────────────────
+            total_units <- bm_start_units + period_units
+            nav_at_end  <- dt_navs[date <= end_d]
+            if (nrow(nav_at_end) == 0) next
+            bm_end_val  <- total_units * nav_at_end[.N]$nav
+            bm_end_date <- nav_at_end[.N]$date
+
+            # ── XIRR cash flows — identical structure to dt_period_xirr ──────
+            #   +bm_start_val at start_d   (cost of entering existing position)
+            #   period transactions        (investments / redemptions)
+            #   -bm_end_val   at bm_end_date  (proceeds on exit)
+            rows <- list()
+            if (bm_start_val > 0)
+                rows <- c(rows, list(data.table(date = start_d, amt = bm_start_val)))
+            if (nrow(dt_period_bm) > 0)
+                rows <- c(rows, list(dt_period_bm[, .(date, amt)]))
+            rows <- c(rows, list(data.table(date = bm_end_date, amt = -bm_end_val)))
+
+            dt_bm_xirr <- rbindlist(rows, fill = TRUE)
+            if (!any(dt_bm_xirr$amt > 0) || !any(dt_bm_xirr$amt < 0)) {
+                bm_xirr <- NA_real_
+            } else {
+                dt_bm_xirr[, days  := as.numeric(max(dt_bm_xirr$date) - date)]
+                dt_bm_xirr[, years := days / 365.25]
+                bm_xirr <- XIRR(dt_bm_xirr)
+            }
+
+            invested <- sum(dt_period_inv[amt > 0]$amt)
+            redeemed <- -sum(dt_period_inv[amt < 0]$amt)
 
             list_benchmarks[[mf_name]] <- data.table(
                 Benchmark        = mf_name,
                 StartDate        = start_d,
                 EndDate          = end_d,
+                `BM.StartValue`  = round(bm_start_val, 2),
                 Invested         = round(invested, 2),
-                `BM.Value`       = round(-bm_value, 2),
-                `BM.Gains`       = round(-bm_value - invested, 2),
+                Redeemed         = round(redeemed, 2),
+                `BM.EndValue`    = round(bm_end_val, 2),
+                `BM.Gains`       = round(bm_end_val - bm_start_val - invested + redeemed, 2),
                 `BenchmarkXIRR%` = round(bm_xirr * 100, 3)
             )
         }
@@ -382,7 +411,8 @@ function(input, output, session) {
         req(nrow(dt) > 0)
         datatable(dt, rownames = FALSE,
                   options = list(dom = 't', ordering = FALSE)) %>%
-            formatRound(columns = c('Invested', 'BM.Value', 'BM.Gains', 'BenchmarkXIRR%'),
+            formatRound(columns = c('BM.StartValue', 'Invested', 'Redeemed',
+                                    'BM.EndValue', 'BM.Gains', 'BenchmarkXIRR%'),
                         digits = 2)
     })
 
