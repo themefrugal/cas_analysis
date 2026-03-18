@@ -256,38 +256,52 @@ function(input, output, session) {
     })
 
     dt_bm_table <- reactive({
-        # HDFC Nify 50 Fund Regular Growth
-        # scheme_code <- '101525'
-        list_benchmarks <- list()
-        for (mf_name in input$mf_name){
-            # scheme_code <- get_scheme_code(mf_name)
-            # dt_navs <- get_navs(scheme_code)
-            dt_navs <- mnav(mf_name)
-            dt_all_txns <- dt_filtered_txns()
+        start_d   <- input$date_range[1]
+        end_d     <- input$date_range[2]
+        dt_base   <- dt_base_txns()
+        cas_close <- max(dt_base[description == 'Cur Value']$date)
 
-            # To do: Instead of comparing with a single fund, give option to compare against any fund
-            # selected
-            dt_inv_txns <- dt_all_txns[description != 'Cur Value'][, c('date', 'description', 'amt')]
-            dt_bm_txns <- merge(dt_inv_txns, dt_navs, by='date')
-            dt_bm_txns[, units := amt/nav]
-            cur_date <- dt_all_txns[description == 'Cur Value']$date[1]
-            cur_nav <- dt_navs[date == cur_date]$nav
-            total_units <- -sum(dt_bm_txns$units)
-            cur_value <- total_units * cur_nav
-            dt_bm_final <- rbindlist(list(dt_bm_txns, list(cur_date, 'BM Cur Value', cur_value, cur_nav, total_units)))
-            dt_bm_final[, days :=  as.numeric(max(dt_bm_final$date) - date)]
-            dt_bm_final[, years := days/365.25]
+        # Transactions within the analysis period only (no Cur Value rows)
+        dt_inv_txns <- dt_filtered_txns()[description != 'Cur Value',
+                                          .(date, description, amt)]
+        invested <- sum(dt_inv_txns[amt > 0]$amt)
+
+        list_benchmarks <- list()
+        for (mf_name in input$mf_name) {
+            dt_navs <- mnav(mf_name)
+
+            # Mirror the portfolio's period transactions into the benchmark fund
+            dt_bm_txns <- merge(dt_inv_txns, dt_navs, by = 'date')
+            dt_bm_txns[, units := amt / nav]
+            total_units <- -sum(dt_bm_txns$units)   # negative: net units held (sign convention)
+
+            # Benchmark value at analysis period END (not CAS close).
+            # Use the last available NAV on or before end_d.
+            nav_at_end <- dt_navs[date <= end_d]
+            if (nrow(nav_at_end) == 0 || total_units == 0) next
+            end_nav    <- nav_at_end[.N]$nav
+            end_date   <- nav_at_end[.N]$date
+            bm_value   <- total_units * end_nav     # negative (XIRR sign convention)
+
+            # Synthetic closing row at period end
+            dt_bm_final <- rbindlist(list(
+                dt_bm_txns,
+                data.table(date = end_date, description = 'BM Cur Value',
+                           amt = bm_value, nav = end_nav, units = total_units)
+            ))
+            dt_bm_final[, days  := as.numeric(max(dt_bm_final$date) - date)]
+            dt_bm_final[, years := days / 365.25]
             bm_xirr <- XIRR(dt_bm_final)
 
-            dt_benchmark <- data.table(
-                Benchmark = mf_name,
-                BenchmarkEqv = round(-cur_value, 3),
-                BenchmarkXIRR = round(bm_xirr * 100, 3))
-            #df_benchmark_t <- data.frame(t(dt_benchmark))
-            #names(df_benchmark_t) <- 'Value'
-            #row.names(df_benchmark_t) <- names(dt_benchmark)
-            #df_benchmark_t
-            list_benchmarks[[mf_name]] <- dt_benchmark
+            list_benchmarks[[mf_name]] <- data.table(
+                Benchmark        = mf_name,
+                StartDate        = start_d,
+                EndDate          = end_d,
+                Invested         = round(invested, 2),
+                `BM.Value`       = round(-bm_value, 2),
+                `BM.Gains`       = round(-bm_value - invested, 2),
+                `BenchmarkXIRR%` = round(bm_xirr * 100, 3)
+            )
         }
         rbindlist(list_benchmarks)
     })
@@ -364,7 +378,10 @@ function(input, output, session) {
     })
 
     output$benchmark <- DT::renderDataTable(
-        datatable(dt_bm_table())
+        datatable(dt_bm_table(), rownames = FALSE,
+                  options = list(dom = 't', ordering = FALSE)) %>%
+            formatRound(columns = c('Invested', 'BM.Value', 'BM.Gains', 'BenchmarkXIRR%'),
+                        digits = 2)
     )
 
     output$summary <- DT::renderDataTable(
