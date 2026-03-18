@@ -570,14 +570,23 @@ function(input, output, session) {
                 hovertemplate = 'XIRR: %{y:.2f}%<extra></extra>'
             ) %>%
             layout(
-                title     = 'Portfolio XIRR Over Time (Inception to Date)',
+                title     = list(
+                    text = paste0(
+                        'Portfolio XIRR Over Time (Inception to Date)',
+                        '<br><sup style="color:#888;font-size:11px">',
+                        'Inception-to-date XIRR at each point. Extreme values in early periods are',
+                        ' mathematically expected when large new SIP investments coincide with',
+                        ' market corrections \u2014 the XIRR is dominated by recent large cash flows.',
+                        '</sup>'
+                    )
+                ),
                 xaxis     = list(title = ''),
                 yaxis     = list(title = 'XIRR (%)', tickformat = '.1f',
                                  zeroline = TRUE, zerolinecolor = '#888',
                                  zerolinewidth = 1),
                 hovermode = 'x unified',
                 legend    = list(orientation = 'h', x = 0, y = -0.12),
-                margin    = list(t = 60, b = 60)
+                margin    = list(t = 80, b = 60)
             )
     })
 
