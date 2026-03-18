@@ -1,5 +1,5 @@
 # From: https://stackoverflow.com/questions/4090169/elegant-way-to-check-for-missing-packages-and-install-them
-list.of.packages <- c("rjson", "data.table", "pdftools", "zeallot", "stringr", "dplyr", "tidyr", "tvm")
+list.of.packages <- c("rjson", "data.table", "pdftools", "zeallot", "stringr", "dplyr", "tidyr", "tvm", "DBI", "RSQLite")
 
 for (package in list.of.packages){
     if(!require(package, character.only=TRUE)){
@@ -284,6 +284,50 @@ get_cached_navs <- function(scheme_code, required_date = Sys.Date()) {
     })
 }
 
+# ── ISIN database (casparser-isin) ────────────────────────────────────────────
+
+ISIN_DB_DIR      <- './isin_db'
+ISIN_DB_PATH     <- file.path(ISIN_DB_DIR, 'isin.db')
+ISIN_DB_URL      <- 'https://casparser.atomcoder.com/isin.db'
+ISIN_DB_MAX_DAYS <- 30L   # refresh the local copy after this many days
+
+# Downloads isin.db if missing or older than ISIN_DB_MAX_DAYS.
+# Returns TRUE if the file exists and is usable, FALSE otherwise.
+ensure_isin_db <- function() {
+    if (!dir.exists(ISIN_DB_DIR)) dir.create(ISIN_DB_DIR, recursive = TRUE)
+
+    needs_download <- !file.exists(ISIN_DB_PATH) ||
+        as.numeric(Sys.time() - file.mtime(ISIN_DB_PATH), units = 'days') > ISIN_DB_MAX_DAYS
+
+    if (needs_download) {
+        tryCatch(
+            download.file(ISIN_DB_URL, ISIN_DB_PATH, mode = 'wb', quiet = TRUE),
+            error = function(e) {
+                if (!file.exists(ISIN_DB_PATH))
+                    warning("Could not download isin.db: ", conditionMessage(e))
+            }
+        )
+    }
+    invisible(file.exists(ISIN_DB_PATH))
+}
+
+# Looks up an ISIN in the local isin.db and returns the AMFI scheme code,
+# which is identical to the mfapi.in scheme code.  Returns NA_character_ if
+# the ISIN is not found or the database is unavailable.
+isin_to_amfi <- function(isin) {
+    if (is.na(isin) || nchar(trimws(isin)) == 0) return(NA_character_)
+    if (!ensure_isin_db()) return(NA_character_)
+    tryCatch({
+        con <- DBI::dbConnect(RSQLite::SQLite(), ISIN_DB_PATH, flags = RSQLite::SQLITE_RO)
+        on.exit(DBI::dbDisconnect(con), add = TRUE)
+        res <- DBI::dbGetQuery(con,
+            "SELECT amfi FROM mf_isin WHERE isin = ? LIMIT 1",
+            params = list(isin))
+        if (nrow(res) == 0 || is.na(res$amfi[1])) return(NA_character_)
+        as.character(res$amfi[1])
+    }, error = function(e) NA_character_)
+}
+
 # ── Fund name matching ─────────────────────────────────────────────────────────
 
 # Strips CAS-specific junk from the raw fund string stored in the `fund` column:
@@ -333,19 +377,30 @@ normalize_fund_name <- function(name) {
 # their corresponding scheme codes).  Pre-computing avoids redundant
 # normalization of 6,000+ scheme names on every call.
 match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
-    cleaned  <- extract_fund_name(cas_fund_name)
-    norm_cas <- normalize_fund_name(cleaned)
+    cleaned   <- extract_fund_name(cas_fund_name)
+    norm_cas  <- normalize_fund_name(cleaned)
     cas_words <- unique(strsplit(norm_cas, " ")[[1]])
 
-    # 1. Exact normalised match
+    # 1. ISIN lookup (most precise — bypasses all name matching).
+    #    The raw CAS fund string embeds the ISIN, e.g. "- ISIN: INF959L01FZ1".
+    #    isin.db maps ISIN → AMFI code, which equals the mfapi.in scheme code.
+    isin_m <- regmatches(cas_fund_name,
+                         regexpr("INF[A-Z0-9]{9}", cas_fund_name, ignore.case = TRUE))
+    if (length(isin_m) == 1L && nchar(isin_m) > 0) {
+        amfi <- isin_to_amfi(isin_m)
+        if (!is.na(amfi)) return(amfi)
+    }
+
+    # 2. Exact normalised name match (local mf_codes.RData)
     exact_idx <- which(norm_mfs == norm_cas)
     if (length(exact_idx) > 0) return(codes[exact_idx[1]])
 
-    # 2. Approximate string match (handles "Direct Plan Growth" vs "Direct Growth" etc.)
+    # 3. Approximate string match — handles minor wording differences
+    #    e.g. "Direct Plan Growth" vs "Direct Growth"
     approx_idx <- agrep(norm_cas, norm_mfs, ignore.case = TRUE, max.distance = 0.3)
     if (length(approx_idx) > 0) return(codes[approx_idx[1]])
 
-    # 3. Overlap coefficient — fraction of mfapi name words found in CAS name.
+    # 4. Overlap coefficient — fraction of mfapi name words found in CAS name.
     #    Better than Jaccard when CAS names embed extra descriptors absent from
     #    mfapi names (e.g. "US Specific Equity Passive" in Navi Nasdaq100 FoF).
     #    Requires ≥ 4 matching words AND ≥ 80% of mfapi name words covered.
@@ -359,8 +414,9 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
     if (length(best_idx) > 0 && ov_scores[best_idx] >= 0.8)
         return(codes[best_idx])
 
-    # 4. mfapi.in search API fallback — handles funds absent from the local
-    #    mf_codes snapshot.  Searches by first 4 words of the cleaned fund name.
+    # 5. mfapi.in search API — last resort for funds absent from both local
+    #    mf_codes and isin.db.  Keyword search on first 4 words of fund name,
+    #    result validated with the same overlap coefficient.
     query      <- paste(head(strsplit(cleaned, "\\s+")[[1]], 4), collapse = " ")
     search_url <- paste0("https://api.mfapi.in/mf/search?q=", URLencode(query))
     tryCatch({
