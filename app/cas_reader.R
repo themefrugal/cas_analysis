@@ -331,10 +331,10 @@ isin_to_amfi <- function(isin) {
         con <- DBI::dbConnect(RSQLite::SQLite(), ISIN_DB_PATH, flags = RSQLite::SQLITE_RO)
         on.exit(DBI::dbDisconnect(con), add = TRUE)
         res <- DBI::dbGetQuery(con,
-            "SELECT amfi FROM mf_isin WHERE isin = ? LIMIT 1",
+            "SELECT amfi_code FROM scheme WHERE isin = ? LIMIT 1",
             params = list(isin))
-        if (nrow(res) == 0 || is.na(res$amfi[1])) return(NA_character_)
-        as.character(res$amfi[1])
+        if (nrow(res) == 0 || is.na(res$amfi_code[1])) return(NA_character_)
+        as.character(res$amfi_code[1])
     }, error = function(e) NA_character_)
 }
 
