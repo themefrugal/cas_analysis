@@ -147,7 +147,15 @@ function(input, output, session) {
     dt_xirr_curve <- eventReactive(input$btn_proc, {
         dt_base  <- dt_base_txns()
         dt_curve <- dt_portfolio_curve()
-        dt_txns  <- dt_base[description != 'Cur Value', .(date, amt)]
+        # Exclude Switch-Out / Switch-In transactions.  These are intra-portfolio
+        # fund reorganisations (voluntary switches or SEBI-mandated scheme mergers)
+        # and carry no actual investor cash flow.  Including them can create
+        # artificial XIRR spikes when a large merger Switch occurs, because the
+        # two legs live in different folio sections and any scheme-mapping
+        # asymmetry introduces a spurious imbalance in the cashflow vector.
+        dt_txns  <- dt_base[description != 'Cur Value' &
+                            !grepl('^Switch', description, ignore.case = TRUE),
+                            .(date, amt)]
 
         xirr_vals <- sapply(seq_len(nrow(dt_curve)), function(i) {
             d  <- dt_curve$date[i]

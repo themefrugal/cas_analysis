@@ -42,6 +42,21 @@ fund_and_advisor <- function(folio_ord_num){
     } else {
         advisor_part <- trimws(fund_advisor[2])
     }
+
+    # Some fund names (e.g. those with a long "(formerly …)" parenthetical) span
+    # two lines in the CAS PDF, pushing the ISIN onto the continuation line.
+    # match_fund_to_scheme() uses the ISIN embedded in fund_part for the most
+    # precise scheme lookup, so append it here if not already present.
+    if (!grepl('INF[A-Z0-9]{9}', fund_part)) {
+        isin_lines <- grep('ISIN:\\s*INF[A-Z0-9]{9}', folio_to_txn_lines, value = TRUE)
+        if (length(isin_lines) > 0) {
+            isin_m <- regmatches(isin_lines[1],
+                                 regexpr('INF[A-Z0-9]{9}', isin_lines[1]))
+            if (length(isin_m) == 1L)
+                fund_part <- paste0(fund_part, ' - ISIN: ', isin_m)
+        }
+    }
+
     return (c(fund_part, advisor_part))
 }
 
