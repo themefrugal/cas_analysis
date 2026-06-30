@@ -114,6 +114,14 @@ function(input, output, session) {
         map
     })
 
+    # Category/SubCategory per fund, from AMFI's NAVAll.txt (ISIN-matched,
+    # falling back to the already-resolved fund_scheme_map code). Built once
+    # per PDF load alongside fund_scheme_map.
+    fund_category_map <- eventReactive(input$btn_proc, {
+        funds <- unique(dt_base_txns()[description != 'Cur Value']$fund)
+        build_fund_category_map(funds, fund_scheme_map(), get_navall_categorized())
+    })
+
     # Pre-warms NAV cache for all funds immediately after PDF loads.
     # Shows a progress bar while fetching from mfapi.in, then stores
     # the per-fund status (Cache / API-new / API-refreshed / No match / failed).
@@ -223,6 +231,9 @@ function(input, output, session) {
         funds <- unique(dt[description != 'Cur Value']$fund)
         dt_full <- rbindlist(lapply(funds, function(f) get_fund_summary_dt(dt, f)))
         names(dt_full)[names(dt_full) == 'XIRR'] <- 'XIRR%'
+        dt_full <- merge(dt_full, fund_category_map()[, !'SchemeType'], by = 'Fund', all.x = TRUE)
+        # Put Category/SubCategory right after Fund rather than wherever merge() lands them
+        setcolorder(dt_full, c('Fund', 'Category', 'SubCategory'))
         dt_full
     })
 
@@ -389,24 +400,27 @@ function(input, output, session) {
             start_val <- portfolio_value_at(dt_base, start_d, fund_scheme_map())$value
         }
 
-        # End Value: use CAS closing data when period reaches the statement date
-        if (end_d >= cas_close) {
-            end_val <- sum(-dt_base[description == 'Cur Value']$amt)
-        } else {
-            end_val <- portfolio_value_at(dt_base, end_d + 1, fund_scheme_map())$value
-        }
-
         # Actual investments/redemptions within the period
         period_txns <- dt_filtered_txns()[description != 'Cur Value', .(date, amt)]
 
         # Build synthetic cash-flow table for XIRR:
         #   +start_val at start_d  (cost of "acquiring" the existing portfolio)
         #   actual period transactions
-        #   -end_val   at end_d    (proceeds from "liquidating" the portfolio)
+        #   -end value (proceeds from "liquidating" the portfolio)
         rows <- list()
         if (start_val > 0) rows <- c(rows, list(data.table(date = start_d, amt =  start_val)))
         if (nrow(period_txns) > 0) rows <- c(rows, list(period_txns))
-        rows <- c(rows, list(data.table(date = end_d, amt = -end_val)))
+
+        # When the period reaches the statement date, reuse each fund's own
+        # Cur Value row (same date/amount as Overall XIRR) instead of lumping
+        # everything onto end_d — keeps the two XIRRs identical for the
+        # default full-history period.
+        if (end_d >= cas_close) {
+            rows <- c(rows, list(dt_base[description == 'Cur Value', .(date, amt)]))
+        } else {
+            end_val <- portfolio_value_at(dt_base, end_d + 1, fund_scheme_map())$value
+            rows <- c(rows, list(data.table(date = end_d, amt = -end_val)))
+        }
 
         dt_xirr <- rbindlist(rows, fill = TRUE)
         # Need at least one positive and one negative cash flow for XIRR to work

@@ -299,6 +299,152 @@ get_cached_navs <- function(scheme_code, required_date = Sys.Date()) {
     })
 }
 
+# ── AMFI NAVAll.txt (scheme category lookup) ──────────────────────────────────
+#
+# Layout of the file (semicolon-delimited, with structural lines mixed in):
+#   Open Ended Schemes(Debt Scheme - Banking and PSU Fund)   <- section header
+#                                                             <- blank separator
+#   Aditya Birla Sun Life Mutual Fund                        <- AMC name (no ';')
+#   119551;INF209KA12Z1;INF209KA13Z9;...;106.3057;25-Jun-2026 <- data row
+#
+# Some section headers have no sub-category, e.g. "Open Ended Schemes(Income)" —
+# in that case Category is set and SubCategory stays NA.
+
+NAVALL_URL        <- 'https://portal.amfiindia.com/spages/NAVAll.txt'
+NAVALL_CACHE_PATH <- file.path(NAV_CACHE_DIR, 'navall_categorized.rds')
+NAVALL_MAX_HOURS  <- 20L   # AMFI publishes NAVs once a day; refresh after this long
+
+# Parses already-downloaded NAVAll.txt lines into a categorized data.table.
+# State (SchemeType/Category/SubCategory/AMC) carries forward from the most
+# recent header/AMC line seen, since those lines don't repeat per data row.
+parse_navall <- function(lines) {
+    header_pattern <- '^(Open|Close|Interval)\\s+Ended\\s+Schemes\\s*\\((.+)\\)\\s*$'
+
+    cur_type        <- NA_character_
+    cur_category    <- NA_character_
+    cur_subcategory <- NA_character_
+    cur_amc         <- NA_character_
+    rows <- vector('list', length(lines))
+    n    <- 0L
+
+    for (line in lines) {
+        trimmed <- trimws(line)
+        if (nchar(trimmed) == 0) next
+
+        header_m <- regmatches(trimmed, regexec(header_pattern, trimmed))[[1]]
+        if (length(header_m) > 0) {
+            cur_type    <- paste(header_m[2], "Ended Schemes")
+            inner       <- trimws(header_m[3])
+            # Category and SubCategory are separated by " - "; older-style
+            # categories (e.g. "Income", "Growth") have no SubCategory.
+            parts       <- str_split(inner, '\\s+-\\s+', n = 2)[[1]]
+            cur_category    <- trimws(parts[1])
+            cur_subcategory <- if (length(parts) > 1) trimws(parts[2]) else NA_character_
+            next
+        }
+
+        if (!grepl(';', trimmed)) {
+            cur_amc <- trimmed   # AMC header lines carry no ';'
+            next
+        }
+
+        fields <- str_split(trimmed, ';')[[1]]
+        if (length(fields) < 6) next                  # malformed/truncated row
+        if (trimws(fields[1]) == 'Scheme Code') next   # literal column-header row
+
+        # NAV/Date are deliberately not captured — mfapi.in remains the source
+        # for current NAVs; this file is used only for category/sub-category.
+        n <- n + 1L
+        rows[[n]] <- data.table(
+            SchemeCode    = trimws(fields[1]),
+            ISIN_Growth   = trimws(fields[2]),
+            ISIN_Reinvest = trimws(fields[3]),
+            SchemeName    = trimws(fields[4]),
+            SchemeType    = cur_type,
+            Category      = cur_category,
+            SubCategory   = cur_subcategory,
+            AMC           = cur_amc
+        )
+    }
+    rbindlist(rows[seq_len(n)], fill = TRUE)
+}
+
+# Downloads + parses NAVAll.txt (category/sub-category mapping only — NAVs
+# themselves still come from mfapi.in via get_navs()/get_cached_navs()).
+# Caches the result as RDS, re-downloading when missing or older than
+# NAVALL_MAX_HOURS. Falls back to a stale cache (with a warning) if the
+# refresh fails outright.
+get_navall_categorized <- function(force_refresh = FALSE) {
+    if (!dir.exists(NAV_CACHE_DIR)) dir.create(NAV_CACHE_DIR, recursive = TRUE)
+
+    needs_download <- force_refresh || !file.exists(NAVALL_CACHE_PATH) ||
+        as.numeric(Sys.time() - file.mtime(NAVALL_CACHE_PATH), units = 'hours') > NAVALL_MAX_HOURS
+
+    if (needs_download) {
+        tryCatch({
+            lines <- readLines(NAVALL_URL, warn = FALSE)
+            dt    <- parse_navall(lines)
+            saveRDS(dt, NAVALL_CACHE_PATH)
+        }, error = function(e) {
+            if (!file.exists(NAVALL_CACHE_PATH))
+                stop("Could not download NAVAll.txt: ", conditionMessage(e))
+            warning("Could not refresh NAVAll.txt, using stale cache: ", conditionMessage(e))
+        })
+    }
+    readRDS(NAVALL_CACHE_PATH)
+}
+
+# Maps each fund (the raw `fund` string stored on transactions, e.g.
+# dt_base_txns()$fund) to its SchemeType/Category/SubCategory.
+#
+# ISIN is tried first (more reliable than name-based scheme-code matching,
+# which can mismatch on near-duplicate scheme names); falls back to the
+# already-resolved fund_scheme_map code when no ISIN is embedded in the fund
+# string or it isn't found in dt_navall.
+#
+# `fund_scheme_map` — named list, fund -> AMFI/mfapi scheme code (as built in
+#   server.R's fund_scheme_map reactive).
+# `dt_navall`       — output of get_navall_categorized().
+build_fund_category_map <- function(funds, fund_scheme_map, dt_navall) {
+    # A scheme can list a Growth-variant ISIN and/or a Reinvestment-variant
+    # ISIN; both belong to the same Category/SubCategory, so stack them into
+    # one long ISIN -> category lookup.
+    dt_isin_long <- rbindlist(list(
+        dt_navall[!is.na(ISIN_Growth) & ISIN_Growth != '-',
+                  .(ISIN = toupper(ISIN_Growth), SchemeType, Category, SubCategory)],
+        dt_navall[!is.na(ISIN_Reinvest) & ISIN_Reinvest != '-',
+                  .(ISIN = toupper(ISIN_Reinvest), SchemeType, Category, SubCategory)]
+    ))
+    dt_isin_long <- unique(dt_isin_long, by = 'ISIN')
+    setkey(dt_isin_long, ISIN)
+
+    dt_code_lookup <- unique(dt_navall[, .(SchemeCode, SchemeType, Category, SubCategory)],
+                              by = 'SchemeCode')
+    setkey(dt_code_lookup, SchemeCode)
+
+    rows <- lapply(funds, function(f) {
+        isin_m  <- regmatches(f, regexpr('INF[A-Z0-9]{9}', f, ignore.case = TRUE))
+        cat_row <- NULL
+        if (length(isin_m) == 1L && nchar(isin_m) > 0) {
+            cat_row <- dt_isin_long[ISIN == toupper(isin_m)]
+        }
+        if (is.null(cat_row) || nrow(cat_row) == 0) {
+            scheme_code <- fund_scheme_map[[f]]
+            if (!is.null(scheme_code) && !is.na(scheme_code)) {
+                cat_row <- dt_code_lookup[SchemeCode == scheme_code]
+            }
+        }
+        if (is.null(cat_row) || nrow(cat_row) == 0) {
+            data.table(Fund = f, SchemeType = NA_character_,
+                       Category = NA_character_, SubCategory = NA_character_)
+        } else {
+            data.table(Fund = f, SchemeType = cat_row$SchemeType[1],
+                       Category = cat_row$Category[1], SubCategory = cat_row$SubCategory[1])
+        }
+    })
+    rbindlist(rows)
+}
+
 # ── ISIN database (casparser-isin) ────────────────────────────────────────────
 
 ISIN_DB_DIR      <- './isin_db'
@@ -369,7 +515,7 @@ extract_fund_name <- function(name) {
     name <- gsub("\\s*-?\\s*ISIN:.*$", "", name, ignore.case = TRUE)
     name <- gsub("\\(formerly[^)]*\\)", "", name, ignore.case = TRUE)
     name <- gsub("\\(Erstwhile[^)]*\\)", "", name, ignore.case = TRUE)
-    name <- gsub("\\(Non-Demat\\)", "", name, ignore.case = TRUE)
+    name <- gsub("\\(Non.Demat\\)", "", name, ignore.case = TRUE)  # matches hyphen and space variants
     name <- gsub("\\(Advisor:.*", "", name, ignore.case = TRUE)  # unclosed paren ok
     name <- gsub("\\s*Registrar\\s*:.*", "", name, ignore.case = TRUE)
     trimws(name)
@@ -381,7 +527,7 @@ extract_fund_name <- function(name) {
 # letter/digit boundaries (nasdaq100 → nasdaq 100) so CAS names match mfapi.in.
 normalize_fund_name <- function(name) {
     name <- tolower(name)
-    name <- gsub("-", "", name)                              # off-shore → offshore
+    name <- gsub("-", " ", name)                              # word-joining hyphens → space
     name <- gsub("[^a-z0-9 ]", " ", name)                   # other punctuation → space
     name <- gsub("\\s+", " ", trimws(name))
     # Collapse adjacent single-letter words: "u s" → "us", "f i i" → "fii"
@@ -406,42 +552,95 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
     norm_cas  <- normalize_fund_name(cleaned)
     cas_words <- unique(strsplit(norm_cas, " ")[[1]])
 
+    # Words that appear across virtually every scheme and cannot serve as an
+    # AMC/brand signal on their own — used in steps 1 and 4.
+    mf_stopwords <- c("direct", "regular", "plan", "growth", "idcw", "fund",
+                      "scheme", "option", "dividend", "bonus", "monthly",
+                      "quarterly", "annual", "reinvest", "payout", "weekly",
+                      "daily", "of", "the", "and", "fof")
+
+    # Checks both overlap directions and returns the best-matching score.
+    # Defined here so it is available from step 1 onward.
+    #   Forward  (existing rule): coverage_mfapi = n_inter / |mfapi words|
+    #            Fires when CAS name has extra descriptors mfapi lacks.
+    #   Reverse  (new rule):      coverage_cas   = n_inter / |cas words|
+    #            Fires when the official name added qualifier words absent from
+    #            the older/CAS name (e.g. SEBI-mandated "Tax Saver" added to
+    #            ELSS schemes, or post-merger rebranding suffixes).
+    #            Requires ≥ 0.9 coverage AND at least one non-stopword brand
+    #            word in the intersection to avoid generic-word false positives.
+    overlap_score <- function(mw) {
+        n_inter <- length(intersect(cas_words, mw))
+        if (n_inter < 4L) return(0)
+        fwd <- n_inter / length(mw)
+        if (fwd >= 0.8) return(fwd)
+        rev <- n_inter / length(cas_words)
+        if (rev >= 0.9) {
+            brand_match <- any(!intersect(cas_words, mw) %in% mf_stopwords)
+            if (brand_match) return(rev)
+        }
+        0
+    }
+
     # 1. ISIN lookup (most precise — bypasses all name matching).
     #    The raw CAS fund string embeds the ISIN, e.g. "- ISIN: INF959L01FZ1".
     #    isin.db maps ISIN → AMFI code, which equals the mfapi.in scheme code.
+    #    Guard: verify the resolved code is still present in the current scheme
+    #    list (codes vector).  isin.db can contain stale ISIN→code mappings for
+    #    schemes that have since been merged/renamed (e.g. IDBI → LIC MF), and
+    #    returning a defunct code would cause a silent NAV-fetch failure later.
     isin_m <- regmatches(cas_fund_name,
                          regexpr("INF[A-Z0-9]{9}", cas_fund_name, ignore.case = TRUE))
     if (length(isin_m) == 1L && nchar(isin_m) > 0) {
         amfi <- isin_to_amfi(isin_m)
-        if (!is.na(amfi)) return(amfi)
+        if (!is.na(amfi) && amfi %in% codes) {
+            # Sanity-check the resolved scheme name against the CAS fund name.
+            # isin.db can map an old (post-merger, pre-rename) ISIN to a scheme
+            # that no longer resembles this fund (e.g. IDBI → LIC MF ELSS).
+            # overlap_score is defined later in this function, so we inline the
+            # check here: require ≥ 2 non-stopword words in common.
+            resolved_name <- norm_mfs[which(codes == amfi)[1]]
+            if (!is.na(resolved_name)) {
+                rw      <- unique(strsplit(resolved_name, " ")[[1]])
+                n_brand <- length(setdiff(intersect(cas_words, rw), mf_stopwords))
+                if (n_brand >= 2L) return(amfi)
+                # else: stale ISIN → fall through to name matching
+            } else {
+                return(amfi)   # code exists but no name to cross-check — trust it
+            }
+        }
     }
 
     # 2. Exact normalised name match (local mf_codes.RData)
     exact_idx <- which(norm_mfs == norm_cas)
     if (length(exact_idx) > 0) return(codes[exact_idx[1]])
 
-    # 3. Approximate string match — handles minor wording differences
-    #    e.g. "Direct Plan Growth" vs "Direct Growth"
+    # 3. Approximate string match — narrows the candidate pool to near-matches,
+    #    then picks the best by overlap_score.  With 37,000+ schemes a blind
+    #    "take first" was returning false positives; requiring overlap_score > 0
+    #    makes agrep a filter rather than a final decision.
     approx_idx <- agrep(norm_cas, norm_mfs, ignore.case = TRUE, max.distance = 0.3)
-    if (length(approx_idx) > 0) return(codes[approx_idx[1]])
+    if (length(approx_idx) > 0) {
+        ap_scores  <- sapply(approx_idx, function(i) overlap_score(unique(strsplit(norm_mfs[i], " ")[[1]])))
+        ap_best    <- approx_idx[which.max(ap_scores)]
+        if (ap_scores[which.max(ap_scores)] > 0) return(codes[ap_best])
+    }
 
-    # 4. Overlap coefficient — fraction of mfapi name words found in CAS name.
-    #    Better than Jaccard when CAS names embed extra descriptors absent from
-    #    mfapi names (e.g. "US Specific Equity Passive" in Navi Nasdaq100 FoF).
-    #    Requires ≥ 4 matching words AND ≥ 80% of mfapi name words covered.
+    # Checks both overlap directions and returns the best-matching score:
+    #   Forward  (existing rule): coverage_mfapi = n_inter / |mfapi words|
+    #            Fires when CAS name has extra descriptors mfapi lacks.
+    #   Reverse  (new rule):      coverage_cas   = n_inter / |cas words|
+    # 4. Overlap coefficient — checks both directions via overlap_score (defined above).
     ov_scores <- sapply(norm_mfs, function(m) {
-        mw      <- unique(strsplit(m, " ")[[1]])
-        n_inter <- length(intersect(cas_words, mw))
-        if (n_inter < 4L) return(0)
-        n_inter / length(mw)
+        overlap_score(unique(strsplit(m, " ")[[1]]))
     })
     best_idx <- which.max(ov_scores)
-    if (length(best_idx) > 0 && ov_scores[best_idx] >= 0.8)
+    if (length(best_idx) > 0 && ov_scores[best_idx] > 0)
         return(codes[best_idx])
 
     # 5. mfapi.in search API — last resort for funds absent from both local
     #    mf_codes and isin.db.  Keyword search on first 4 words of fund name,
-    #    result validated with the same overlap coefficient.
+    #    result validated with the same two-direction overlap score.
     query      <- paste(head(strsplit(cleaned, "\\s+")[[1]], 4), collapse = " ")
     search_url <- paste0("https://api.mfapi.in/mf/search?q=", URLencode(query))
     tryCatch({
@@ -450,13 +649,10 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes) {
         api_names  <- sapply(results, function(r) normalize_fund_name(r$schemeName))
         api_codes  <- sapply(results, function(r) as.character(r$schemeCode))
         api_scores <- sapply(api_names, function(m) {
-            mw      <- unique(strsplit(m, " ")[[1]])
-            n_inter <- length(intersect(cas_words, mw))
-            if (n_inter < 4L) return(0)
-            n_inter / length(mw)
+            overlap_score(unique(strsplit(m, " ")[[1]]))
         })
         api_best <- which.max(api_scores)
-        if (length(api_best) > 0 && api_scores[api_best] >= 0.8)
+        if (length(api_best) > 0 && api_scores[api_best] > 0)
             return(api_codes[api_best])
     }, error = function(e) NULL)
 
