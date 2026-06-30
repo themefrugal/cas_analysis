@@ -50,6 +50,20 @@ navbarPage(
             plotlyOutput('xirr_over_time', height = '380px')
         )
     ),
+    tabPanel('Analytics',
+        fluidPage(
+            br(),
+            fluidRow(
+                column(3,
+                    selectInput('analytics_level', 'Group by:',
+                        choices  = c('Category', 'Sub-category', 'AMC', 'Scheme', 'Folio'),
+                        selected = 'Category')
+                )
+            ),
+            br(),
+            DT::dataTableOutput('analytics_table')
+        )
+    ),
     tabPanel('Transactions',
         fluidPage(
             DT::dataTableOutput('transactions')

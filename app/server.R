@@ -186,30 +186,56 @@ function(input, output, session) {
 
     period_warnings <- reactiveVal(character(0))
 
-    # Gate: FALSE until input$date_range has been auto-populated with real dates.
-    # Prevents expensive XIRR/gains computations from running in the first reactive
-    # flush (when date_range is still the "1900-01-01" sentinel), so each PDF load
-    # triggers only ONE computation instead of two.
+    # Gate: FALSE until the full processing pipeline completes after a PDF load.
     analysis_ready <- reactiveVal(FALSE)
 
-    # Reset the gate every time a new PDF is processed.
+    # Single orchestrated observer for the full post-upload pipeline.
+    # All slow work happens here with a visible progress bar so the user
+    # always knows what the app is doing.  analysis_ready(TRUE) is set only
+    # after every step completes, so no downstream reactive fires prematurely.
     observeEvent(input$btn_proc, {
         analysis_ready(FALSE)
-    }, ignoreInit = TRUE)
 
-    # Populate the date range from the loaded data and open the analysis gate.
-    # analysis_ready(TRUE) fires here — after dt_base_txns() resolves with real
-    # data — so no sentinel date check is needed.
-    # NAV pre-warming (nav_status_log) is NOT forced here; it runs lazily when
-    # the NAV Status tab is viewed.  This keeps the UI responsive.
-    observe({
-        dt <- dt_base_txns()
+        withProgress(message = 'Processing CAS...', value = 0, {
+
+            setProgress(0.05, detail = 'Parsing PDF...')
+            dt <- dt_base_txns()
+
+            setProgress(0.15, detail = 'Matching fund names...')
+            fsm <- fund_scheme_map()
+
+            setProgress(0.25, detail = 'Loading category data...')
+            fund_category_map()
+
+            # NAV pre-warming — largest chunk, shown per fund
+            n <- length(fsm)
+            i <- 0L
+            pre_warm_navs(fsm, required_date = Sys.Date(),
+                progress_fn = function(fname) {
+                    i <<- i + 1L
+                    setProgress(
+                        value  = 0.25 + 0.55 * (i / n),
+                        detail = paste0('NAV (', i, '/', n, ') ',
+                                        extract_fund_name(fname))
+                    )
+                })
+
+            setProgress(0.82, detail = 'Computing portfolio curve...')
+            dt_portfolio_curve()
+
+            setProgress(0.92, detail = 'Computing XIRR history...')
+            dt_xirr_curve()
+
+            setProgress(1.0, detail = 'Done.')
+        })
+
         non_cv    <- dt[description != 'Cur Value']$date
         cas_close <- max(dt[description == 'Cur Value']$date)
         updateDateRangeInput(session, "date_range",
             start = min(non_cv), end = cas_close)
         analysis_ready(TRUE)
-    })
+
+    }, ignoreInit = TRUE)
 
     dt_filtered_txns <- reactive({
         dt <- dt_base_txns()
@@ -223,6 +249,69 @@ function(input, output, session) {
             dt[, years := days/365.25]
         }
         dt
+    })
+
+    # ── Analytics: group-level summary ────────────────────────────────────────
+    # Aggregates dt_filtered_txns() at the chosen granularity.
+    # XIRR is recomputed from the group's combined cash flows so it correctly
+    # reflects the blended return for that group over the selected period.
+    dt_analytics <- reactive({
+        req(analysis_ready())
+        dt  <- dt_filtered_txns()
+        cat_map <- fund_category_map()
+
+        # Attach grouping columns — all derived from existing per-row data.
+        # "Scheme" collapses same-scheme transactions across different folios.
+        dt <- merge(dt, cat_map[, .(Fund, Category, SubCategory)],
+                    by.x = 'fund', by.y = 'Fund', all.x = TRUE)
+        dt[, Scheme := extract_fund_name(Fund)]
+        dt[, AMC    := trimws(amc)]
+
+        group_col <- switch(input$analytics_level,
+            'Category'     = 'Category',
+            'Sub-category' = 'SubCategory',
+            'AMC'          = 'AMC',
+            'Scheme'       = 'Scheme',
+            'Folio'        = 'folio',
+            'Scheme'   # default
+        )
+
+        group_vals <- unique(na.omit(dt[[group_col]]))
+
+        rows <- lapply(group_vals, function(gv) {
+            dt_g <- dt[get(group_col) == gv]
+
+            txns    <- dt_g[description != 'Cur Value']
+            cur_val <- dt_g[description == 'Cur Value']
+
+            invested  <- sum(txns[amt > 0]$amt)
+            redeemed  <- -sum(txns[amt < 0]$amt)
+            cur_value <- -sum(cur_val$amt)
+            gains     <- cur_value - invested + redeemed
+
+            # XIRR: recalculate days/years from this group's own max date
+            dt_xirr <- copy(dt_g[, .(date, amt)])
+            if (nrow(dt_xirr) > 0 && any(dt_xirr$amt > 0) && any(dt_xirr$amt < 0)) {
+                max_d <- max(dt_xirr$date)
+                dt_xirr[, days  := as.numeric(max_d - date)]
+                dt_xirr[, years := days / 365.25]
+                xirr_val <- XIRR(dt_xirr)
+            } else {
+                xirr_val <- NA_real_
+            }
+
+            data.table(
+                Group         = gv,
+                `Cur.Value`   = round(cur_value, 2),
+                Invested      = round(invested,  2),
+                Redeemed      = round(redeemed,  2),
+                `Net.Invested`= round(invested - redeemed, 2),
+                Gains         = round(gains,     2),
+                `XIRR%`       = if (is.na(xirr_val)) NA_real_ else round(xirr_val * 100, 3)
+            )
+        })
+
+        rbindlist(rows, fill = TRUE)
     })
 
     dt_mf_xirrs <- reactive({
@@ -495,6 +584,16 @@ function(input, output, session) {
             ) %>%
             formatRound(columns=c('Amount', 'NAV', 'TransactionUnits', 'BalanceUnits'), digits=3)
     )
+
+    output$analytics_table <- DT::renderDataTable({
+        req(analysis_ready())
+        dt <- dt_analytics()
+        datatable(dt, filter = 'top',
+                  options = list(pageLength = 25, ordering = TRUE)) %>%
+            formatRound(columns = c('Cur.Value', 'Invested', 'Redeemed',
+                                    'Net.Invested', 'Gains'), digits = 2) %>%
+            formatRound(columns = 'XIRR%', digits = 3)
+    })
 
     output$out_text <- renderText({
         input$password
