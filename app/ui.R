@@ -54,14 +54,36 @@ navbarPage(
         fluidPage(
             br(),
             fluidRow(
-                column(3,
-                    selectInput('analytics_level', 'Group by:',
-                        choices  = c('Category', 'Sub-category', 'AMC', 'Scheme', 'Folio'),
-                        selected = 'Category')
+                column(4,
+                    selectInput('analytics_hierarchy', 'Hierarchy:',
+                        choices = c(
+                            'AMC → Category → Sub-Category → Scheme',
+                            'AMC → Folio → Category → Sub-Category → Scheme',
+                            'Category → Sub-Category → AMC → Scheme',
+                            'Category → AMC → Sub-Category → Scheme',
+                            'Custom'
+                        ),
+                        selected = 'AMC → Category → Sub-Category → Scheme')
+                ),
+                column(5,
+                    conditionalPanel(
+                        condition = "input.analytics_hierarchy === 'Custom'",
+                        selectizeInput('analytics_custom_cols', 'Group levels (select in order):',
+                            choices  = c('AMC', 'Category', 'Sub-Category', 'Scheme', 'Folio'),
+                            selected = c('Category', 'Sub-Category'),
+                            multiple = TRUE,
+                            options  = list(
+                                plugins = list('drag_drop', 'remove_button'),
+                                placeholder = 'Pick and order grouping levels'
+                            )
+                        )
+                    )
                 )
             ),
             br(),
-            DT::dataTableOutput('analytics_table')
+            p(style = 'color: #666; font-size: 0.85em;',
+              'Financial columns are summed at each level. XIRR% is shown at the leaf (Scheme/Folio) level only.'),
+            reactable::reactableOutput('analytics_table')
         )
     ),
     tabPanel('Transactions',

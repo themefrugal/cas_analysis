@@ -1,9 +1,10 @@
-source('params_local.R')
-pages <- pdf_text(file_path)
+# Optional helper for exploratory scripts.
+# Pass the explicit parser state returned by parse_cas_pdf().
 
-folio_ord_num <- 12
-# debt_folios <- folio_lines[c(1, 7, 8, 9, 18, 20, 35, 36, 39)]
-debt_folios <- folio_lines[c(1, 7, 18, 20, 35, 36, 39)]
-#debt_folios <- folio_lines[c(11, 12, 13, 15, 17, 18, 32)]
-equity_folios <- setdiff(folio_lines, debt_folios)
-
+build_folio_groups <- function(cas_state, debt_indices = c(1, 7, 18, 20, 35, 36, 39)) {
+    stopifnot(is.list(cas_state), 'folio_lines' %in% names(cas_state))
+    debt_indices <- debt_indices[debt_indices <= length(cas_state$folio_lines)]
+    debt_folios <- cas_state$folio_lines[debt_indices]
+    equity_folios <- setdiff(cas_state$folio_lines, debt_folios)
+    list(debt_folios = debt_folios, equity_folios = equity_folios)
+}

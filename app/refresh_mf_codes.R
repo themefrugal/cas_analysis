@@ -21,8 +21,7 @@ suppressPackageStartupMessages({
     library(stringr)
 })
 
-source("cas_regex.R")
-source("cas_reader.R")
+source("market_data.R")
 
 MF_LIST_URL <- "https://api.mfapi.in/mf"
 

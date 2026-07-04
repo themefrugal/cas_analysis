@@ -4,6 +4,11 @@ library(shiny)
 library(memoise)
 library(purrr)
 library(plotly)
+library(reactable)
+
+if (!file.exists('./mf_codes_equity.RData') || !file.exists('./mf_codes.RData')) {
+    stop('Scheme data is missing. Run Rscript refresh_mf_codes.R from the app directory first.')
+}
 
 read_from_internet <- FALSE
 if (read_from_internet){
@@ -11,9 +16,7 @@ if (read_from_internet){
     mf_list <- fromJSON(paste(readLines(mf_list_url), collapse=""))
     dt_mfs <- data.table(do.call(rbind.data.frame, mf_list))
 
-    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, first_upper)
-    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, prune_left)
-    dt_mfs$schemeName <- sapply(dt_mfs$schemeName, remove_extra_space)
+    dt_mfs$schemeName <- as.character(dt_mfs$schemeName)
     dt_mfs <- dt_mfs[order(schemeName)]
     dt_mfs <- unique(dt_mfs)
     save(dt_mfs, file = './mf_codes.RData')
@@ -28,6 +31,7 @@ if (read_from_internet){
         dt_mfs_all <- dt_mfs          # fallback: equity only
     }
 }
+scheme_lookup_all <- get_prepared_scheme_lookup(dt_mfs_all)
 
 get_scheme_code <- function(mf_name){
     # Check this: There are multiple scheme codes for the same scheme name (in approx 20 instances)
@@ -47,56 +51,21 @@ get_fund_summary_dt <- function(dt_all, fund_name) {
         dt_fund[, years := days / 365.25]
     }
 
-    cur_value <- -sum(dt_fund[description == 'Cur Value']$amt)
-    cash_in   <- sum(dt_fund[amt > 0]$amt)
-    cash_out  <- -sum(dt_fund[amt < 0]$amt)
-    xirr_val  <- XIRR(dt_fund)
-    txn_dates <- dt_fund[description != 'Cur Value']$date
-
-    # Proportional average-cost allocation for realized/unrealized split
-    redemptions <- cash_out - cur_value
-    total_out   <- redemptions + cur_value
-    cost_of_redemptions <- if (total_out > 0) cash_in * redemptions / total_out else 0
-    realized_gains   <- redemptions - cost_of_redemptions
-    unrealized_gains <- cur_value - (cash_in - cost_of_redemptions)
-
-    # Propagate NA rather than computing NA * 100
-    xirr_pct <- if (is.na(xirr_val)) NA_real_ else xirr_val * 100
-
-    data.frame(
-        Fund            = fund_name,
-        Cur.Value       = cur_value,
-        Invested        = cash_in,
-        Redeemed        = redemptions,
-        RealizedGains   = realized_gains,
-        UnrealizedGains = unrealized_gains,
-        XIRR            = xirr_pct,
-        StartDate       = if (length(txn_dates) > 0) min(txn_dates) else NA,
-        RecentDate      = max(dt_fund$date)
-    )
+    get_mf_summary(dt_fund, folio_ord_num = 1)
 }
 
 function(input, output, session) {
     updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
+    nav_status_cache <- reactiveVal(NULL)
 
     init_proc <- reactive({
-        pages <- pdf_text(input$file1$datapath, upw=input$password)
-        all_lines <<- c()
-        for (i in 1:length(pages)){
-            lines <- str_split(pages[i], pattern="\n")
-            all_lines <<- c(all_lines, lines[[1]])
-        }
-
-        folio_lines <<- which(grepl("Folio No\\s*:", all_lines, ignore.case=TRUE))
-        amc_lines <<- which(grepl("Mutual Fund", all_lines, ignore.case=TRUE))
-        opening_lines <<- which(grepl("Opening Unit Balance:", all_lines, ignore.case=TRUE))
-        closing_lines <<- which(grepl("Closing Unit Balance:", all_lines, ignore.case=TRUE))
+        req(input$file1, input$file1$datapath)
+        parse_cas_pdf(input$file1$datapath, input$password)
     })
 
     dt_base_txns <- eventReactive(input$btn_proc, {
         withProgress(message = 'Parsing CAS PDF...', value = 0.5, {
-            init_proc()
-            get_portfolio_transactions(folio_lines)
+            get_portfolio_transactions(init_proc())
         })
     })
 
@@ -107,9 +76,7 @@ function(input, output, session) {
     # redundant regex operations.
     fund_scheme_map <- eventReactive(input$btn_proc, {
         funds    <- unique(dt_base_txns()[description != 'Cur Value']$fund)
-        norm_mfs <- sapply(as.character(dt_mfs_all$schemeName), normalize_fund_name)
-        codes    <- as.character(dt_mfs_all$schemeCode)
-        map      <- lapply(funds, function(f) match_fund_to_scheme(f, norm_mfs, codes))
+        map      <- lapply(funds, function(f) match_fund_to_scheme(f, scheme_lookup_all))
         names(map) <- funds
         map
     })
@@ -125,20 +92,9 @@ function(input, output, session) {
     # Pre-warms NAV cache for all funds immediately after PDF loads.
     # Shows a progress bar while fetching from mfapi.in, then stores
     # the per-fund status (Cache / API-new / API-refreshed / No match / failed).
-    nav_status_log <- eventReactive(input$btn_proc, {
-        map <- fund_scheme_map()
-        n   <- length(map)
-        i   <- 0L
-        withProgress(message = 'Loading NAV data...', value = 0, {
-            pre_warm_navs(map, required_date = Sys.Date(),
-                progress_fn = function(fname) {
-                    i <<- i + 1L
-                    setProgress(
-                        value  = i / n,
-                        detail = paste0('(', i, '/', n, ') ', extract_fund_name(fname))
-                    )
-                })
-        })
+    nav_status_log <- reactive({
+        req(nav_status_cache())
+        nav_status_cache()
     })
 
     # Monthly portfolio value curve — computed ONCE per PDF load (eventReactive).
@@ -161,9 +117,7 @@ function(input, output, session) {
         # artificial XIRR spikes when a large merger Switch occurs, because the
         # two legs live in different folio sections and any scheme-mapping
         # asymmetry introduces a spurious imbalance in the cashflow vector.
-        dt_txns  <- dt_base[description != 'Cur Value' &
-                            !grepl('^Switch', description, ignore.case = TRUE),
-                            .(date, amt)]
+        dt_txns  <- external_cashflows(dt_base)[, .(date, amt)]
 
         xirr_vals <- sapply(seq_len(nrow(dt_curve)), function(i) {
             d  <- dt_curve$date[i]
@@ -210,7 +164,7 @@ function(input, output, session) {
             # NAV pre-warming — largest chunk, shown per fund
             n <- length(fsm)
             i <- 0L
-            pre_warm_navs(fsm, required_date = Sys.Date(),
+            nav_status <- pre_warm_navs(fsm, required_date = Sys.Date(),
                 progress_fn = function(fname) {
                     i <<- i + 1L
                     setProgress(
@@ -219,6 +173,7 @@ function(input, output, session) {
                                         extract_fund_name(fname))
                     )
                 })
+            nav_status_cache(nav_status)
 
             setProgress(0.82, detail = 'Computing portfolio curve...')
             dt_portfolio_curve()
@@ -251,67 +206,47 @@ function(input, output, session) {
         dt
     })
 
-    # ── Analytics: group-level summary ────────────────────────────────────────
-    # Aggregates dt_filtered_txns() at the chosen granularity.
-    # XIRR is recomputed from the group's combined cash flows so it correctly
-    # reflects the blended return for that group over the selected period.
-    dt_analytics <- reactive({
+    # ── Analytics: leaf-level summary (one row per AMC×Category×SubCategory×Scheme×Folio) ──
+    # Financial columns are summable so reactable can roll them up at every
+    # hierarchy level.  XIRR is pre-computed at the leaf (fund+folio) level
+    # and displayed only there; aggregate rows leave it blank.
+    dt_analytics_leaves <- reactive({
         req(analysis_ready())
-        dt  <- dt_filtered_txns()
+        dt      <- dt_filtered_txns()
         cat_map <- fund_category_map()
 
-        # Attach grouping columns — all derived from existing per-row data.
-        # "Scheme" collapses same-scheme transactions across different folios.
         dt <- merge(dt, cat_map[, .(Fund, Category, SubCategory)],
                     by.x = 'fund', by.y = 'Fund', all.x = TRUE)
-        dt[, Scheme := extract_fund_name(Fund)]
+        dt[, Scheme := extract_fund_name(fund)]
         dt[, AMC    := trimws(amc)]
+        dt[is.na(Category),    Category    := '(Unknown)']
+        dt[is.na(SubCategory), SubCategory := '(Unknown)']
+        dt[is.na(AMC),         AMC         := '(Unknown)']
 
-        group_col <- switch(input$analytics_level,
-            'Category'     = 'Category',
-            'Sub-category' = 'SubCategory',
-            'AMC'          = 'AMC',
-            'Scheme'       = 'Scheme',
-            'Folio'        = 'folio',
-            'Scheme'   # default
-        )
-
-        group_vals <- unique(na.omit(dt[[group_col]]))
-
-        rows <- lapply(group_vals, function(gv) {
-            dt_g <- dt[get(group_col) == gv]
-
-            txns    <- dt_g[description != 'Cur Value']
-            cur_val <- dt_g[description == 'Cur Value']
-
+        dt[, {
+            txns    <- position_cashflows(.SD)
+            cur_val <- .SD[description == 'Cur Value']
             invested  <- sum(txns[amt > 0]$amt)
             redeemed  <- -sum(txns[amt < 0]$amt)
             cur_value <- -sum(cur_val$amt)
             gains     <- cur_value - invested + redeemed
-
-            # XIRR: recalculate days/years from this group's own max date
-            dt_xirr <- copy(dt_g[, .(date, amt)])
-            if (nrow(dt_xirr) > 0 && any(dt_xirr$amt > 0) && any(dt_xirr$amt < 0)) {
-                max_d <- max(dt_xirr$date)
-                dt_xirr[, days  := as.numeric(max_d - date)]
-                dt_xirr[, years := days / 365.25]
-                xirr_val <- XIRR(dt_xirr)
-            } else {
-                xirr_val <- NA_real_
-            }
-
-            data.table(
-                Group         = gv,
-                `Cur.Value`   = round(cur_value, 2),
-                Invested      = round(invested,  2),
-                Redeemed      = round(redeemed,  2),
-                `Net.Invested`= round(invested - redeemed, 2),
-                Gains         = round(gains,     2),
-                `XIRR%`       = if (is.na(xirr_val)) NA_real_ else round(xirr_val * 100, 3)
-            )
-        })
-
-        rbindlist(rows, fill = TRUE)
+            dt_x      <- rbindlist(list(txns[, .(date, amt)],
+                                        cur_val[, .(date, amt)]),
+                                   fill = TRUE)
+            xirr_val  <- if (any(dt_x$amt > 0) && any(dt_x$amt < 0)) {
+                max_d <- max(dt_x$date)
+                dt_x[, days  := as.numeric(max_d - date)]
+                dt_x[, years := days / 365.25]
+                XIRR(dt_x)
+            } else NA_real_
+            .(`Cur Value`    = round(cur_value,              2),
+              Invested        = round(invested,               2),
+              Redeemed        = round(redeemed,               2),
+              `Net Invested`  = round(invested - redeemed,    2),
+              Gains           = round(gains,                  2),
+              `XIRR%`         = if (is.na(xirr_val)) NA_real_
+                                else round(xirr_val * 100, 3))
+        }, by = .(AMC, Category, SubCategory, Scheme, Folio = folio)]
     })
 
     dt_mf_xirrs <- reactive({
@@ -348,7 +283,7 @@ function(input, output, session) {
         all_warns  <- character(0)
 
         # Investment / Redemption within the selected period (from filtered transactions)
-        period_txns <- dt_filtered_txns()[description != 'Cur Value']
+        period_txns <- external_cashflows(dt_filtered_txns())
         investment  <- sum(period_txns[amt > 0]$amt)
         redemption  <- -sum(period_txns[amt < 0]$amt)
         net_inv     <- investment - redemption
@@ -397,9 +332,9 @@ function(input, output, session) {
         first_txn <- min(dt_base[description != 'Cur Value']$date)
 
         # All non-CurValue transactions (needed to compute pre-period holdings)
-        dt_all_inv    <- dt_base[description != 'Cur Value', .(date, amt)]
+        dt_all_inv    <- external_cashflows(dt_base)[, .(date, amt)]
         # Only transactions inside the analysis period
-        dt_period_inv <- dt_filtered_txns()[description != 'Cur Value', .(date, amt)]
+        dt_period_inv <- external_cashflows(dt_filtered_txns())[, .(date, amt)]
 
         list_benchmarks <- list()
         for (mf_name in input$mf_name) {
@@ -471,7 +406,12 @@ function(input, output, session) {
     })
 
     dt_port_xirr <- eventReactive(input$btn_proc, {
-        XIRR(dt_base_txns())
+        dt_base <- dt_base_txns()
+        dt_xirr <- rbindlist(list(
+            external_cashflows(dt_base)[, .(date, amt)],
+            dt_base[description == 'Cur Value', .(date, amt)]
+        ), fill = TRUE)
+        XIRR(recalc_xirr_basis(dt_xirr))
     })
 
     dt_period_xirr <- reactive({
@@ -490,7 +430,7 @@ function(input, output, session) {
         }
 
         # Actual investments/redemptions within the period
-        period_txns <- dt_filtered_txns()[description != 'Cur Value', .(date, amt)]
+        period_txns <- external_cashflows(dt_filtered_txns())[, .(date, amt)]
 
         # Build synthetic cash-flow table for XIRR:
         #   +start_val at start_d  (cost of "acquiring" the existing portfolio)
@@ -585,18 +525,99 @@ function(input, output, session) {
             formatRound(columns=c('Amount', 'NAV', 'TransactionUnits', 'BalanceUnits'), digits=3)
     )
 
-    output$analytics_table <- DT::renderDataTable({
+    output$analytics_table <- renderReactable({
         req(analysis_ready())
-        dt <- dt_analytics()
-        datatable(dt, filter = 'top',
-                  options = list(pageLength = 25, ordering = TRUE)) %>%
-            formatRound(columns = c('Cur.Value', 'Invested', 'Redeemed',
-                                    'Net.Invested', 'Gains'), digits = 2) %>%
-            formatRound(columns = 'XIRR%', digits = 3)
-    })
+        df <- as.data.frame(dt_analytics_leaves())
 
-    output$out_text <- renderText({
-        input$password
+        # ── Resolve groupBy columns from the selected hierarchy ──────────────
+        HIERARCHY_MAP <- list(
+            'AMC → Category → Sub-Category → Scheme' =
+                c('AMC', 'Category', 'SubCategory', 'Scheme'),
+            'AMC → Folio → Category → Sub-Category → Scheme' =
+                c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme'),
+            'Category → Sub-Category → AMC → Scheme' =
+                c('Category', 'SubCategory', 'AMC', 'Scheme'),
+            'Category → AMC → Sub-Category → Scheme' =
+                c('Category', 'AMC', 'SubCategory', 'Scheme')
+        )
+        sel <- input$analytics_hierarchy
+        if (sel == 'Custom') {
+            raw        <- input$analytics_custom_cols
+            group_cols <- sapply(raw, function(x)
+                switch(x, 'Sub-Category' = 'SubCategory', x), USE.NAMES = FALSE)
+            group_cols <- intersect(group_cols, names(df))
+        } else {
+            group_cols <- HIERARCHY_MAP[[sel]]
+        }
+        if (is.null(group_cols) || length(group_cols) == 0)
+            group_cols <- c('AMC', 'Category', 'SubCategory', 'Scheme')
+
+        # ── Column definitions ────────────────────────────────────────────────
+        # Header colour ramp for hierarchy depth (dark → lighter blue)
+        hier_blues <- c('#1565C0', '#1976D2', '#1E88E5', '#42A5F5', '#90CAF9')
+        text_white <- list(color = 'white', fontWeight = 'bold')
+        all_5      <- c('AMC', 'Category', 'SubCategory', 'Scheme', 'Folio')
+        leaf_cols  <- setdiff(all_5, group_cols)
+
+        make_hier_def <- function(col, depth) {
+            colDef(
+                name        = if (col == 'SubCategory') 'Sub-Category' else col,
+                minWidth    = 150,
+                headerStyle = c(list(background = hier_blues[min(depth, 5L)]),
+                                text_white)
+            )
+        }
+        make_leaf_def <- function(col) {
+            colDef(show = FALSE)
+        }
+
+        data_hdr  <- list(background = '#37474F', color = 'white', fontWeight = 'bold')
+        money_fmt <- colFormat(separators = TRUE, digits = 2, currency = NULL)
+
+        hier_defs <- setNames(
+            lapply(seq_along(group_cols), function(i) make_hier_def(group_cols[i], i)),
+            group_cols)
+        leaf_defs <- setNames(lapply(leaf_cols, make_leaf_def), leaf_cols)
+
+        data_defs <- list(
+            `Cur Value`   = colDef(name = 'Cur. Value',   aggregate = 'sum',
+                                   format = money_fmt,      headerStyle = data_hdr),
+            Invested      = colDef(aggregate = 'sum',      format = money_fmt,
+                                   headerStyle = data_hdr),
+            Redeemed      = colDef(aggregate = 'sum',      format = money_fmt,
+                                   headerStyle = data_hdr),
+            `Net Invested`= colDef(name = 'Net Invested', aggregate = 'sum',
+                                   format = money_fmt,      headerStyle = data_hdr),
+            Gains         = colDef(aggregate = 'sum',      format = money_fmt,
+                                   headerStyle = data_hdr,
+                                   style = function(value) {
+                                       if (!is.na(value) && is.numeric(value))
+                                           list(color = if (value >= 0) '#2e7d32' else '#c62828')
+                                   }),
+            `XIRR%`       = colDef(name = 'XIRR%',
+                                   format = colFormat(digits = 3),
+                                   headerStyle = data_hdr,
+                                   style = function(value) {
+                                       if (!is.na(value) && is.numeric(value))
+                                           list(color      = if (value >= 0) '#2e7d32' else '#c62828',
+                                                fontWeight = 'bold')
+                                   })
+        )
+
+        reactable(df,
+            groupBy         = group_cols,
+            columns         = c(hier_defs, leaf_defs, data_defs),
+            bordered        = TRUE,
+            highlight       = TRUE,
+            compact         = TRUE,
+            searchable      = TRUE,
+            defaultPageSize = 50,
+            theme           = reactableTheme(
+                headerStyle      = list(background = '#37474F', color = 'white'),
+                rowSelectedStyle = list(background = '#e3f2fd'),
+                borderColor      = '#dee2e6'
+            )
+        )
     })
 
     output$pf_xirr <- renderText({
