@@ -29,6 +29,43 @@ test_that("external cash flows exclude switches for portfolio-level returns", {
     expect_equal(cf$amt, 50)
 })
 
+test_that("analytics hierarchy recalculates XIRR at each group level", {
+    dt <- data.table(
+        AMC = 'Kotak Mutual Fund',
+        Category = 'Debt Scheme',
+        SubCategory = 'Liquid Fund',
+        Scheme = 'Kotak Liquid Fund Direct Plan Growth',
+        folio = 'F1',
+        date = as.Date(c('2018-06-15', '2020-12-10', '2026-07-03')),
+        description = c(
+            'Switch In (Decimal Change)',
+            'Purchase (Continuous Offer)',
+            'Cur Value'
+        ),
+        amt = c(300192.390, 149992.500, -683094.010)
+    )
+
+    hierarchy <- build_hierarchy_xirr_table(
+        dt,
+        c('AMC', 'Category', 'SubCategory', 'Scheme')
+    )
+
+    expect_equal(sort(unique(hierarchy$Level)), 1:4)
+    expect_equal(hierarchy[Level == 1]$`Cur Value`, 683094.01)
+    expect_equal(hierarchy[Level == 1]$Invested, 450184.89)
+    expect_equal(hierarchy[Level == 1]$`XIRR%`, 5.911)
+    expect_equal(hierarchy[Level == 4]$`XIRR%`, 5.911)
+
+    dt[, Folio := folio]
+    folio_hierarchy <- build_hierarchy_xirr_table(
+        dt,
+        c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme')
+    )
+
+    expect_equal(sort(unique(folio_hierarchy$Level)), 1:5)
+    expect_equal(folio_hierarchy[Level == 2]$`XIRR%`, 5.911)
+})
+
 test_that("diagnostics count unmatched funds and switches", {
     dt <- data.table(
         fund = c('Fund A', 'Fund A', 'Fund B'),

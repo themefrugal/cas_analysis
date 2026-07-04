@@ -294,3 +294,49 @@ build_quality_diagnostics <- function(dt_base, fund_scheme_map, fund_category_ma
         )
     )
 }
+
+summarise_position_group <- function(dt_group) {
+    txns <- position_cashflows(dt_group)
+    cur_val <- dt_group[description == 'Cur Value']
+    invested <- sum(txns[amt > 0]$amt)
+    redeemed <- -sum(txns[amt < 0]$amt)
+    cur_value <- -sum(cur_val$amt)
+    gains <- cur_value - invested + redeemed
+    dt_x <- rbindlist(list(txns[, .(date, amt)], cur_val[, .(date, amt)]), fill = TRUE)
+    xirr_val <- if (nrow(dt_x) > 0 && any(dt_x$amt > 0) && any(dt_x$amt < 0)) {
+        XIRR(recalc_xirr_basis(dt_x))
+    } else {
+        NA_real_
+    }
+    list(
+        `Cur Value` = round(cur_value, 2),
+        Invested = round(invested, 2),
+        Redeemed = round(redeemed, 2),
+        `Net Invested` = round(invested - redeemed, 2),
+        Gains = round(gains, 2),
+        `XIRR%` = if (is.na(xirr_val)) NA_real_ else round(xirr_val * 100, 3)
+    )
+}
+
+build_hierarchy_xirr_table <- function(dt_enriched, group_cols) {
+    if (nrow(dt_enriched) == 0 || length(group_cols) == 0) return(data.table())
+    rows <- vector('list', length(group_cols))
+
+    for (depth in seq_along(group_cols)) {
+        cols <- group_cols[seq_len(depth)]
+        dt_level <- dt_enriched[, summarise_position_group(.SD), by = cols]
+        dt_level[, Level := depth]
+        dt_level[, Group := as.character(get(cols[length(cols)]))]
+        path_parts <- dt_level[, cols, with = FALSE]
+        dt_level[, Path := do.call(paste, c(path_parts, sep = ' / '))]
+        rows[[depth]] <- dt_level
+    }
+
+    out <- rbindlist(rows, fill = TRUE)
+    setorderv(out, c(group_cols, 'Level'), rep(1, length(group_cols) + 1))
+    out[, Group := paste0(strrep('-- ', pmax(Level - 1, 0)), Group)]
+    front_cols <- c('Level', 'Group', 'Path', group_cols)
+    front_cols <- unique(front_cols[front_cols %in% names(out)])
+    setcolorder(out, c(front_cols, setdiff(names(out), front_cols)))
+    out
+}

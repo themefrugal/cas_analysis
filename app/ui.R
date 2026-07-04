@@ -303,7 +303,7 @@ page_navbar(
                 ),
                 div(
                     class = "control-note",
-                    "Financial columns are summed at each level. XIRR% is shown at the leaf level."
+                    "Each hierarchy row recalculates XIRR% from its underlying cash flows."
                 )
             ),
             card(

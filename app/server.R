@@ -276,11 +276,34 @@ function(input, output, session) {
         dt
     })
 
-    # ── Analytics: leaf-level summary (one row per AMC×Category×SubCategory×Scheme×Folio) ──
-    # Financial columns are summable so reactable can roll them up at every
-    # hierarchy level.  XIRR is pre-computed at the leaf (fund+folio) level
-    # and displayed only there; aggregate rows leave it blank.
-    dt_analytics_leaves <- reactive({
+    analytics_group_cols <- reactive({
+        hierarchy_map <- list(
+            'AMC -> Category -> Sub-Category -> Scheme' =
+                c('AMC', 'Category', 'SubCategory', 'Scheme'),
+            'AMC -> Folio -> Category -> Sub-Category -> Scheme' =
+                c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme'),
+            'Category -> Sub-Category -> AMC -> Scheme' =
+                c('Category', 'SubCategory', 'AMC', 'Scheme'),
+            'Category -> AMC -> Sub-Category -> Scheme' =
+                c('Category', 'AMC', 'SubCategory', 'Scheme')
+        )
+        sel <- input$analytics_hierarchy
+        if (identical(sel, 'Custom')) {
+            raw <- input$analytics_custom_cols
+            group_cols <- sapply(raw, function(x)
+                switch(x, 'Sub-Category' = 'SubCategory', x), USE.NAMES = FALSE)
+        } else {
+            group_cols <- hierarchy_map[[sel]]
+        }
+        valid_cols <- c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme')
+        group_cols <- intersect(group_cols, valid_cols)
+        if (is.null(group_cols) || length(group_cols) == 0) {
+            group_cols <- c('AMC', 'Category', 'SubCategory', 'Scheme')
+        }
+        group_cols
+    })
+
+    dt_analytics_source <- reactive({
         req(analysis_ready())
         dt      <- dt_filtered_txns()
         cat_map <- fund_category_map()
@@ -289,34 +312,23 @@ function(input, output, session) {
                     by.x = 'fund', by.y = 'Fund', all.x = TRUE)
         dt[, Scheme := extract_fund_name(fund)]
         dt[, AMC    := trimws(amc)]
+        dt[, Folio  := folio]
         dt[is.na(Category),    Category    := '(Unknown)']
         dt[is.na(SubCategory), SubCategory := '(Unknown)']
         dt[is.na(AMC),         AMC         := '(Unknown)']
+        dt
+    })
 
-        dt[, {
-            txns    <- position_cashflows(.SD)
-            cur_val <- .SD[description == 'Cur Value']
-            invested  <- sum(txns[amt > 0]$amt)
-            redeemed  <- -sum(txns[amt < 0]$amt)
-            cur_value <- -sum(cur_val$amt)
-            gains     <- cur_value - invested + redeemed
-            dt_x      <- rbindlist(list(txns[, .(date, amt)],
-                                        cur_val[, .(date, amt)]),
-                                   fill = TRUE)
-            xirr_val  <- if (any(dt_x$amt > 0) && any(dt_x$amt < 0)) {
-                max_d <- max(dt_x$date)
-                dt_x[, days  := as.numeric(max_d - date)]
-                dt_x[, years := days / 365.25]
-                XIRR(dt_x)
-            } else NA_real_
-            .(`Cur Value`    = round(cur_value,              2),
-              Invested        = round(invested,               2),
-              Redeemed        = round(redeemed,               2),
-              `Net Invested`  = round(invested - redeemed,    2),
-              Gains           = round(gains,                  2),
-              `XIRR%`         = if (is.na(xirr_val)) NA_real_
-                                else round(xirr_val * 100, 3))
-        }, by = .(AMC, Category, SubCategory, Scheme, Folio = folio)]
+    # Leaf-level summary remains the source for cards and insight widgets.
+    dt_analytics_leaves <- reactive({
+        dt <- dt_analytics_source()
+        dt[, summarise_position_group(.SD), by = .(AMC, Category, SubCategory, Scheme, Folio)]
+    })
+
+    # The Analytics grid displays precomputed hierarchy rows. XIRR cannot be
+    # summed, so every hierarchy level is recalculated from its own cash flows.
+    dt_analytics_hierarchy <- reactive({
+        build_hierarchy_xirr_table(dt_analytics_source(), analytics_group_cols())
     })
 
     dt_mf_xirrs <- reactive({
@@ -745,68 +757,37 @@ function(input, output, session) {
 
     output$analytics_table <- renderReactable({
         req(analysis_ready())
-        df <- as.data.frame(dt_analytics_leaves())
-
-        # ── Resolve groupBy columns from the selected hierarchy ──────────────
-        HIERARCHY_MAP <- list(
-            'AMC -> Category -> Sub-Category -> Scheme' =
-                c('AMC', 'Category', 'SubCategory', 'Scheme'),
-            'AMC -> Folio -> Category -> Sub-Category -> Scheme' =
-                c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme'),
-            'Category -> Sub-Category -> AMC -> Scheme' =
-                c('Category', 'SubCategory', 'AMC', 'Scheme'),
-            'Category -> AMC -> Sub-Category -> Scheme' =
-                c('Category', 'AMC', 'SubCategory', 'Scheme')
-        )
-        sel <- input$analytics_hierarchy
-        if (sel == 'Custom') {
-            raw        <- input$analytics_custom_cols
-            group_cols <- sapply(raw, function(x)
-                switch(x, 'Sub-Category' = 'SubCategory', x), USE.NAMES = FALSE)
-            group_cols <- intersect(group_cols, names(df))
-        } else {
-            group_cols <- HIERARCHY_MAP[[sel]]
-        }
-        if (is.null(group_cols) || length(group_cols) == 0)
-            group_cols <- c('AMC', 'Category', 'SubCategory', 'Scheme')
+        df <- as.data.frame(dt_analytics_hierarchy())
 
         # ── Column definitions ────────────────────────────────────────────────
         # Header colour ramp for hierarchy depth (dark → lighter blue)
         hier_blues <- c('#1565C0', '#1976D2', '#1E88E5', '#42A5F5', '#90CAF9')
         text_white <- list(color = 'white', fontWeight = 'bold')
         all_5      <- c('AMC', 'Category', 'SubCategory', 'Scheme', 'Folio')
-        leaf_cols  <- setdiff(all_5, group_cols)
-
-        make_hier_def <- function(col, depth) {
-            colDef(
-                name        = if (col == 'SubCategory') 'Sub-Category' else col,
-                minWidth    = 150,
-                headerStyle = c(list(background = hier_blues[min(depth, 5L)]),
-                                text_white)
-            )
-        }
-        make_leaf_def <- function(col) {
-            colDef(show = FALSE)
-        }
+        hidden_cols <- unique(c('Level', 'Path', all_5))
 
         data_hdr  <- list(background = '#37474F', color = 'white', fontWeight = 'bold')
         money_fmt <- colFormat(separators = TRUE, digits = 2, currency = NULL)
 
-        hier_defs <- setNames(
-            lapply(seq_along(group_cols), function(i) make_hier_def(group_cols[i], i)),
-            group_cols)
-        leaf_defs <- setNames(lapply(leaf_cols, make_leaf_def), leaf_cols)
+        hidden_defs <- setNames(lapply(hidden_cols, function(col) colDef(show = FALSE)), hidden_cols)
 
         data_defs <- list(
-            `Cur Value`   = colDef(name = 'Cur. Value',   aggregate = 'sum',
+            Group         = colDef(name = 'Hierarchy', minWidth = 300,
+                                   headerStyle = c(list(background = hier_blues[1]), text_white),
+                                   style = function(value, index) {
+                                       if (!is.null(df$Level) && df$Level[index] <= 2) {
+                                           list(fontWeight = '700')
+                                       }
+                                   }),
+            `Cur Value`   = colDef(name = 'Cur. Value',
                                    format = money_fmt,      headerStyle = data_hdr),
-            Invested      = colDef(aggregate = 'sum',      format = money_fmt,
+            Invested      = colDef(format = money_fmt,
                                    headerStyle = data_hdr),
-            Redeemed      = colDef(aggregate = 'sum',      format = money_fmt,
+            Redeemed      = colDef(format = money_fmt,
                                    headerStyle = data_hdr),
-            `Net Invested`= colDef(name = 'Net Invested', aggregate = 'sum',
+            `Net Invested`= colDef(name = 'Net Invested',
                                    format = money_fmt,      headerStyle = data_hdr),
-            Gains         = colDef(aggregate = 'sum',      format = money_fmt,
+            Gains         = colDef(format = money_fmt,
                                    headerStyle = data_hdr,
                                    style = function(value) {
                                        if (!is.na(value) && is.numeric(value))
@@ -823,8 +804,7 @@ function(input, output, session) {
         )
 
         reactable(df,
-            groupBy         = group_cols,
-            columns         = c(hier_defs, leaf_defs, data_defs),
+            columns         = c(hidden_defs, data_defs),
             bordered        = TRUE,
             highlight       = TRUE,
             compact         = TRUE,
