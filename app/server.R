@@ -531,13 +531,13 @@ function(input, output, session) {
 
         # ── Resolve groupBy columns from the selected hierarchy ──────────────
         HIERARCHY_MAP <- list(
-            'AMC → Category → Sub-Category → Scheme' =
+            'AMC -> Category -> Sub-Category -> Scheme' =
                 c('AMC', 'Category', 'SubCategory', 'Scheme'),
-            'AMC → Folio → Category → Sub-Category → Scheme' =
+            'AMC -> Folio -> Category -> Sub-Category -> Scheme' =
                 c('AMC', 'Folio', 'Category', 'SubCategory', 'Scheme'),
-            'Category → Sub-Category → AMC → Scheme' =
+            'Category -> Sub-Category -> AMC -> Scheme' =
                 c('Category', 'SubCategory', 'AMC', 'Scheme'),
-            'Category → AMC → Sub-Category → Scheme' =
+            'Category -> AMC -> Sub-Category -> Scheme' =
                 c('Category', 'AMC', 'SubCategory', 'Scheme')
         )
         sel <- input$analytics_hierarchy

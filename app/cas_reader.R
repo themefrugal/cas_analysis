@@ -6,7 +6,7 @@
 
 list.of.packages <- c(
     'rjson', 'data.table', 'pdftools', 'zeallot', 'stringr', 'dplyr', 'tidyr',
-    'tvm', 'DBI', 'RSQLite', 'httr', 'reactable'
+    'tvm', 'DBI', 'RSQLite', 'httr', 'reactable', 'bslib'
 )
 
 missing_packages <- list.of.packages[
