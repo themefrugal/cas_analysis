@@ -55,6 +55,7 @@ validate_cas_state <- function(state) {
 
 cas_state_from_pages <- function(pages) {
     all_lines <- unlist(str_split(pages, pattern = '\n'), use.names = FALSE)
+    all_lines <- gsub('[\u2212\u2010\u2011\u2012\u2013\u2014]', '-', all_lines)
     state <- list(
         all_lines     = all_lines,
         folio_lines   = which(grepl('Folio No\\s*:', all_lines, ignore.case = TRUE)),

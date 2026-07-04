@@ -146,12 +146,47 @@ table.dataTable thead th {
 table.dataTable tbody td {
     vertical-align: middle;
 }
+.sample-pdf-links {
+    border: 1px solid #e4e8ef;
+    border-radius: 8px;
+    padding: 0.7rem 0.8rem;
+    background: #ffffff;
+}
+.sample-pdf-links summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+.sample-pdf-links a {
+    display: block;
+    margin-top: 0.4rem;
+    font-size: 0.88rem;
+}
 "
+
+sample_pdf_files <- list.files(
+    file.path('www', 'samples'),
+    pattern = '\\.pdf$',
+    full.names = FALSE
+)
+sample_pdf_links <- if (length(sample_pdf_files) > 0) {
+    tags$details(
+        class = 'sample-pdf-links',
+        tags$summary('Sample PDFs'),
+        tags$small('Use blank password. All investor data is fictional.'),
+        lapply(sample_pdf_files, function(file) {
+            label <- tools::file_path_sans_ext(gsub('-', ' ', file))
+            tags$a(href = file.path('samples', file), download = file, tools::toTitleCase(label))
+        })
+    )
+} else {
+    NULL
+}
 
 analysis_controls <- sidebar(
     width = 330,
     fileInput("file1", "CAS PDF"),
     passwordInput("password", "PDF password"),
+    sample_pdf_links,
     actionButton("btn_proc", "Analyze", class = "btn-primary w-100"),
     uiOutput("workflow_status"),
     conditionalPanel(
