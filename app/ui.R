@@ -333,6 +333,10 @@ page_navbar(
                                 plugins = list("drag_drop", "remove_button"),
                                 placeholder = "Pick and order grouping levels"
                             )
+                        ),
+                        div(
+                            class = "control-note",
+                            "After Scheme, only Folio can be added as a lower grouping level."
                         )
                     )
                 ),

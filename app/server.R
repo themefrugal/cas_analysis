@@ -276,6 +276,22 @@ function(input, output, session) {
         dt
     })
 
+    observeEvent(input$analytics_custom_cols, {
+        raw <- input$analytics_custom_cols
+        sanitized <- sanitize_custom_analytics_groups(raw)
+        choices <- available_custom_analytics_groups(sanitized)
+
+        if (!identical(raw, sanitized)) {
+            updateSelectizeInput(session, 'analytics_custom_cols',
+                                 choices = choices, selected = sanitized,
+                                 server = TRUE)
+        } else {
+            updateSelectizeInput(session, 'analytics_custom_cols',
+                                 choices = choices, selected = raw,
+                                 server = TRUE)
+        }
+    }, ignoreInit = FALSE)
+
     analytics_group_cols <- reactive({
         hierarchy_map <- list(
             'AMC -> Category -> Sub-Category -> Scheme' =
@@ -289,9 +305,8 @@ function(input, output, session) {
         )
         sel <- input$analytics_hierarchy
         if (identical(sel, 'Custom')) {
-            raw <- input$analytics_custom_cols
-            group_cols <- sapply(raw, function(x)
-                switch(x, 'Sub-Category' = 'SubCategory', x), USE.NAMES = FALSE)
+            raw <- sanitize_custom_analytics_groups(input$analytics_custom_cols)
+            group_cols <- analytics_group_label_to_col(raw)
         } else {
             group_cols <- hierarchy_map[[sel]]
         }

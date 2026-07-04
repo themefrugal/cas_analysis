@@ -340,3 +340,41 @@ build_hierarchy_xirr_table <- function(dt_enriched, group_cols) {
     setcolorder(out, c(front_cols, setdiff(names(out), front_cols)))
     out
 }
+
+analytics_group_label_to_col <- function(labels) {
+    unname(vapply(labels, function(x) switch(x, 'Sub-Category' = 'SubCategory', x), character(1)))
+}
+
+sanitize_custom_analytics_groups <- function(labels) {
+    if (is.null(labels) || length(labels) == 0) return(character(0))
+    valid_labels <- c('AMC', 'Category', 'Sub-Category', 'Scheme', 'Folio')
+    labels <- labels[labels %in% valid_labels]
+    labels <- labels[!duplicated(labels)]
+
+    scheme_idx <- match('Scheme', labels, nomatch = 0L)
+    if (scheme_idx == 0L) return(labels)
+
+    before_and_scheme <- labels[seq_len(scheme_idx)]
+    after_scheme <- if (scheme_idx < length(labels)) {
+        labels[(scheme_idx + 1L):length(labels)]
+    } else {
+        character(0)
+    }
+    after_scheme <- after_scheme[after_scheme == 'Folio']
+
+    c(before_and_scheme, after_scheme)
+}
+
+available_custom_analytics_groups <- function(labels) {
+    valid_labels <- c('AMC', 'Category', 'Sub-Category', 'Scheme', 'Folio')
+    labels <- sanitize_custom_analytics_groups(labels)
+    scheme_idx <- match('Scheme', labels, nomatch = 0L)
+    if (scheme_idx == 0L) return(valid_labels)
+
+    after_scheme <- if (scheme_idx < length(labels)) {
+        labels[(scheme_idx + 1L):length(labels)]
+    } else {
+        character(0)
+    }
+    unique(c(labels, if (!'Folio' %in% after_scheme) 'Folio'))
+}

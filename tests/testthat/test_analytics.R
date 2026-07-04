@@ -89,6 +89,25 @@ test_that("analytics hierarchy supports partial column selections", {
     expect_false(any(c('SubCategory', 'Scheme', 'Folio') %in% hidden_cols))
 })
 
+test_that("custom analytics grouping only allows Folio below Scheme", {
+    expect_equal(
+        sanitize_custom_analytics_groups(c('Category', 'Scheme', 'AMC', 'Folio')),
+        c('Category', 'Scheme', 'Folio')
+    )
+    expect_equal(
+        sanitize_custom_analytics_groups(c('AMC', 'Folio', 'Category', 'Scheme')),
+        c('AMC', 'Folio', 'Category', 'Scheme')
+    )
+    expect_equal(
+        available_custom_analytics_groups(c('Category', 'Scheme')),
+        c('Category', 'Scheme', 'Folio')
+    )
+    expect_equal(
+        analytics_group_label_to_col(c('Sub-Category', 'Scheme', 'Folio')),
+        c('SubCategory', 'Scheme', 'Folio')
+    )
+})
+
 test_that("diagnostics count unmatched funds and switches", {
     dt <- data.table(
         fund = c('Fund A', 'Fund A', 'Fund B'),
