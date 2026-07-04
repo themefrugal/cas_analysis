@@ -66,6 +66,29 @@ test_that("analytics hierarchy recalculates XIRR at each group level", {
     expect_equal(folio_hierarchy[Level == 2]$`XIRR%`, 5.911)
 })
 
+test_that("analytics hierarchy supports partial column selections", {
+    dt <- data.table(
+        AMC = 'Kotak Mutual Fund',
+        Category = 'Debt Scheme',
+        SubCategory = 'Liquid Fund',
+        Scheme = 'Kotak Liquid Fund Direct Plan Growth',
+        Folio = 'F1',
+        folio = 'F1',
+        date = as.Date(c('2024-01-01', '2026-01-01')),
+        description = c('Purchase (Continuous Offer)', 'Cur Value'),
+        amt = c(100000, -112000)
+    )
+
+    hierarchy <- build_hierarchy_xirr_table(dt, c('AMC', 'Category'))
+    hidden_cols <- intersect(
+        unique(c('Level', 'Path', 'AMC', 'Category', 'SubCategory', 'Scheme', 'Folio')),
+        names(as.data.frame(hierarchy))
+    )
+
+    expect_setequal(hidden_cols, c('Level', 'Path', 'AMC', 'Category'))
+    expect_false(any(c('SubCategory', 'Scheme', 'Folio') %in% hidden_cols))
+})
+
 test_that("diagnostics count unmatched funds and switches", {
     dt <- data.table(
         fund = c('Fund A', 'Fund A', 'Fund B'),

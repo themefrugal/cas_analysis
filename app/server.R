@@ -764,7 +764,7 @@ function(input, output, session) {
         hier_blues <- c('#1565C0', '#1976D2', '#1E88E5', '#42A5F5', '#90CAF9')
         text_white <- list(color = 'white', fontWeight = 'bold')
         all_5      <- c('AMC', 'Category', 'SubCategory', 'Scheme', 'Folio')
-        hidden_cols <- unique(c('Level', 'Path', all_5))
+        hidden_cols <- intersect(unique(c('Level', 'Path', all_5)), names(df))
 
         data_hdr  <- list(background = '#37474F', color = 'white', fontWeight = 'bold')
         money_fmt <- colFormat(separators = TRUE, digits = 2, currency = NULL)
