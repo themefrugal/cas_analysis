@@ -41,6 +41,34 @@ get_scheme_code <- function(mf_name){
 }
 mnav <- memoise(compose(get_navs, get_scheme_code))
 
+dt_options <- function(...) {
+    modifyList(
+        list(pageLength = 25, autoWidth = TRUE, scrollX = TRUE),
+        list(...)
+    )
+}
+
+dt_class <- 'compact stripe hover order-column'
+
+format_money_cols <- function(tbl, columns, digits = 2) {
+    tbl %>%
+        formatCurrency(columns = columns, currency = '', interval = 3,
+                       mark = ',', digits = digits) %>%
+        formatStyle(columns = columns, textAlign = 'right')
+}
+
+format_number_cols <- function(tbl, columns, digits = 3) {
+    tbl %>%
+        formatRound(columns = columns, digits = digits) %>%
+        formatStyle(columns = columns, textAlign = 'right')
+}
+
+format_pct_cols <- function(tbl, columns, digits = 3) {
+    tbl %>%
+        formatRound(columns = columns, digits = digits) %>%
+        formatStyle(columns = columns, textAlign = 'right')
+}
+
 get_fund_summary_dt <- function(dt_all, fund_name) {
     dt_fund <- dt_all[fund == fund_name]
 
@@ -473,9 +501,10 @@ function(input, output, session) {
     })
 
     output$gains <- DT::renderDataTable(
-        datatable(dt_gains_table(), rownames = FALSE,
-                  options = list(dom = 't', ordering = FALSE)) %>%
-            formatRound(columns = c('Amount'), digits = 2)
+        datatable(dt_gains_table(), rownames = FALSE, class = dt_class,
+                  options = dt_options(dom = 't', ordering = FALSE,
+                                       paging = FALSE, scrollX = FALSE)) %>%
+            format_money_cols(columns = c('Amount'), digits = 2)
     )
 
     output$period_warnings <- renderText({
@@ -487,42 +516,48 @@ function(input, output, session) {
     output$benchmark <- DT::renderDataTable({
         dt <- dt_bm_table()
         req(nrow(dt) > 0)
-        datatable(dt, rownames = FALSE,
-                  options = list(dom = 't', ordering = FALSE)) %>%
-            formatRound(columns = c('BM.StartValue', 'Invested', 'Redeemed',
-                                    'BM.EndValue', 'BM.Gains', 'BenchmarkXIRR%'),
-                        digits = 2)
+        datatable(dt, rownames = FALSE, class = dt_class,
+                  options = dt_options(dom = 't', ordering = FALSE,
+                                       paging = FALSE)) %>%
+            format_money_cols(columns = c('BM.StartValue', 'Invested', 'Redeemed',
+                                          'BM.EndValue', 'BM.Gains'),
+                              digits = 2) %>%
+            format_pct_cols(columns = 'BenchmarkXIRR%', digits = 3)
     })
 
     output$summary <- DT::renderDataTable(
-        datatable(dt_mf_xirrs(), filter='top', options = list(pageLength = 25)) %>%
-            formatRound(columns=c('Cur.Value', 'Invested', 'Redeemed',
-                'RealizedGains', 'UnrealizedGains', 'XIRR%'), digits=3)
+        datatable(dt_mf_xirrs(), filter = 'top', class = dt_class,
+                  options = dt_options(pageLength = 25)) %>%
+            format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
+                                          'RealizedGains', 'UnrealizedGains'),
+                              digits = 2) %>%
+            format_pct_cols(columns = 'XIRR%', digits = 3)
     )
 
     output$folio_level_summary <- DT::renderDataTable(
-        datatable(dt_folio_xirrs(), filter='top', options = list(pageLength = 10)) %>%
-            formatRound(columns=c('Cur.Value', 'Invested', 'Redeemed',
-                'RealizedGains', 'UnrealizedGains', 'XIRR%'), digits=3)
+        datatable(dt_folio_xirrs(), filter = 'top', class = dt_class,
+                  options = dt_options(pageLength = 10)) %>%
+            format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
+                                          'RealizedGains', 'UnrealizedGains'),
+                              digits = 2) %>%
+            format_pct_cols(columns = 'XIRR%', digits = 3)
     )
 
     output$transactions <- DT::renderDataTable(
-        datatable(dt_port_txns(), filter='top',
-                            extensions = 'Buttons',
-                            options = list(
-                                paging = TRUE,
-                                searching = TRUE,
-                                fixedColumns = TRUE,
-                                autoWidth = TRUE,
-                                ordering = TRUE,
-                                dom = 'tB',
-                                buttons = c('copy', 'csv', 'excel'),
-                                pageLength = 100
-                            ),
-                            class='display'
-#            options = list(dom = '<"top" p>', pageLength = 25)
-            ) %>%
-            formatRound(columns=c('Amount', 'NAV', 'TransactionUnits', 'BalanceUnits'), digits=3)
+        datatable(dt_port_txns(), filter = 'top',
+                  extensions = 'Buttons',
+                  options = dt_options(
+                      paging = TRUE,
+                      searching = TRUE,
+                      ordering = TRUE,
+                      dom = 'Bfrtip',
+                      buttons = c('copy', 'csv', 'excel'),
+                      pageLength = 100
+                  ),
+                  class = dt_class) %>%
+            format_money_cols(columns = c('Amount'), digits = 2) %>%
+            format_number_cols(columns = c('NAV', 'TransactionUnits', 'BalanceUnits'),
+                               digits = 3)
     )
 
     output$analytics_table <- renderReactable({
@@ -622,15 +657,15 @@ function(input, output, session) {
 
     output$pf_xirr <- renderText({
         val <- dt_port_xirr()
-        if (is.na(val)) return("Overall Portfolio XIRR: N/A")
-        paste0("Overall Portfolio XIRR: ", round(val * 100, 3), "%")
+        if (is.na(val)) return("N/A")
+        paste0(round(val * 100, 3), "%")
     })
 
     output$period_xirr <- renderText({
         req(input$btn_proc > 0)
         val <- dt_period_xirr()
-        if (is.na(val)) return("Analysis Period XIRR: N/A")
-        paste0("Analysis Period XIRR: ", round(val * 100, 3), "%")
+        if (is.na(val)) return("N/A")
+        paste0(round(val * 100, 3), "%")
     })
 
     output$text_ovr_sum <- renderText({
@@ -734,8 +769,9 @@ function(input, output, session) {
 
     output$nav_status <- DT::renderDataTable({
         dt <- nav_status_log()
-        datatable(dt, rownames = FALSE,
-                  options = list(pageLength = 50, dom = 't', ordering = FALSE)) %>%
+        datatable(dt, rownames = FALSE, class = dt_class,
+                  options = dt_options(pageLength = 50, dom = 't',
+                                       ordering = FALSE)) %>%
             formatStyle('Source',
                 backgroundColor = styleEqual(
                     c('Cache', 'API - new', 'API - refreshed',

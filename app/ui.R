@@ -72,6 +72,21 @@ body {
     border: 1px solid #e4e8ef;
     border-radius: 8px;
 }
+.dataTables_wrapper {
+    font-size: 0.88rem;
+}
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    padding: 0.25rem 0.45rem;
+}
+table.dataTable thead th {
+    white-space: nowrap;
+}
+table.dataTable tbody td {
+    vertical-align: middle;
+}
 "
 
 analysis_controls <- sidebar(
