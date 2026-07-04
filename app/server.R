@@ -50,6 +50,40 @@ dt_options <- function(...) {
 
 dt_class <- 'compact stripe hover order-column'
 
+`%||%` <- function(x, y) {
+    if (is.null(x) || length(x) == 0 || is.na(x)) y else x
+}
+
+money_label <- function(x) {
+    ifelse(is.na(x), 'N/A', paste0('Rs. ', format(round(x, 0), big.mark = ',')))
+}
+
+pct_label <- function(x) {
+    ifelse(is.na(x), 'N/A', paste0(round(x, 3), '%'))
+}
+
+plot_bar <- function(dt, x_col, y_col, title = NULL, color = '#1f5f8b') {
+    req(nrow(dt) > 0)
+    plot_ly(dt, x = as.formula(paste0('~`', x_col, '`')),
+            y = as.formula(paste0('~`', y_col, '`')),
+            type = 'bar',
+            marker = list(color = color),
+            hovertemplate = '%{x}<br>%{y:,.0f}<extra></extra>') %>%
+        layout(title = title, xaxis = list(title = ''),
+               yaxis = list(title = ''), margin = list(b = 90))
+}
+
+html_table <- function(df) {
+    if (is.null(df) || nrow(df) == 0) return('<p>No data available.</p>')
+    header <- paste0('<tr>', paste0('<th>', htmltools::htmlEscape(names(df)), '</th>',
+                                    collapse = ''), '</tr>')
+    rows <- apply(as.data.frame(df), 1, function(row) {
+        paste0('<tr>', paste0('<td>', htmltools::htmlEscape(as.character(row)),
+                              '</td>', collapse = ''), '</tr>')
+    })
+    paste0('<table>', header, paste(rows, collapse = ''), '</table>')
+}
+
 format_money_cols <- function(tbl, columns, digits = 2) {
     tbl %>%
         formatCurrency(columns = columns, currency = '', interval = 3,
@@ -220,6 +254,10 @@ function(input, output, session) {
         cas_close <- max(dt[description == 'Cur Value']$date)
         updateDateRangeInput(session, "date_range",
             start = min(non_cv), end = cas_close)
+        updateSelectizeInput(session, "fund_detail",
+            choices = sort(unique(dt[description != 'Cur Value']$fund)),
+            selected = sort(unique(dt[description != 'Cur Value']$fund))[1],
+            server = TRUE)
         analysis_ready(TRUE)
 
     }, ignoreInit = TRUE)
@@ -303,6 +341,47 @@ function(input, output, session) {
         dt_full_table <- rbindlist(list_table)
         names(dt_full_table)[names(dt_full_table) == 'XIRR'] <- 'XIRR%'
         dt_full_table
+    })
+
+    dt_match_explain <- reactive({
+        req(analysis_ready())
+        explain_fund_matches(fund_scheme_map(), scheme_lookup_all)
+    })
+
+    dt_quality <- reactive({
+        req(analysis_ready())
+        build_quality_diagnostics(
+            dt_base_txns(),
+            fund_scheme_map(),
+            fund_category_map(),
+            nav_status_log(),
+            period_warnings()
+        )
+    })
+
+    dt_contributors <- reactive({
+        req(analysis_ready())
+        get_performance_contributors(dt_analytics_leaves())
+    })
+
+    dt_category_alloc <- reactive({
+        req(analysis_ready())
+        get_allocation_summary(dt_analytics_leaves(), 'Category')
+    })
+
+    dt_amc_alloc <- reactive({
+        req(analysis_ready())
+        get_allocation_summary(dt_analytics_leaves(), 'AMC')
+    })
+
+    dt_top_funds_value <- reactive({
+        req(analysis_ready())
+        get_allocation_summary(dt_analytics_leaves(), 'Scheme', top_n = 10)
+    })
+
+    dt_fund_detail <- reactive({
+        req(analysis_ready(), input$fund_detail)
+        dt_base_txns()[fund == input$fund_detail]
     })
 
     dt_gains_table <- reactive({
@@ -517,6 +596,93 @@ function(input, output, session) {
         div(class = 'workflow-status ready', 'File selected. Click Analyze.')
     })
 
+    output$fund_detail_kpis <- renderUI({
+        dt <- dt_fund_detail()
+        req(nrow(dt) > 0)
+        summary <- get_mf_summary(recalc_xirr_basis(copy(dt)), folio_ord_num = 1)
+        div(
+            class = 'detail-grid',
+            div(class = 'kpi-card',
+                div(class = 'kpi-label', 'Current value'),
+                div(class = 'kpi-value', money_label(summary$Cur.Value))),
+            div(class = 'kpi-card',
+                div(class = 'kpi-label', 'Invested'),
+                div(class = 'kpi-value', money_label(summary$Invested))),
+            div(class = 'kpi-card',
+                div(class = 'kpi-label', 'Unrealized gains'),
+                div(class = 'kpi-value', money_label(summary$UnrealizedGains))),
+            div(class = 'kpi-card',
+                div(class = 'kpi-label', 'XIRR'),
+                div(class = 'kpi-value', pct_label(summary$XIRR)))
+        )
+    })
+
+    output$fund_match_detail <- DT::renderDataTable({
+        req(input$fund_detail)
+        dt <- dt_match_explain()[Fund == extract_fund_name(input$fund_detail)]
+        datatable(dt, rownames = FALSE, class = dt_class,
+                  options = dt_options(dom = 't', paging = FALSE, scrollX = TRUE)) %>%
+            format_pct_cols(columns = 'Confidence', digits = 3)
+    })
+
+    output$fund_detail_transactions <- DT::renderDataTable({
+        dt <- copy(dt_fund_detail())
+        req(nrow(dt) > 0)
+        dt <- dt[, .(Date = date, Description = description, Amount = amt,
+                     NAV = nav, TransactionUnits = units,
+                     BalanceUnits = bal_units)]
+        datatable(dt, rownames = FALSE, filter = 'top', class = dt_class,
+                  options = dt_options(pageLength = input$settings_page_size %||% 25)) %>%
+            format_money_cols(columns = 'Amount', digits = 2) %>%
+            format_number_cols(columns = c('NAV', 'TransactionUnits', 'BalanceUnits'),
+                               digits = 3)
+    })
+
+    output$top_contributors <- renderPlotly({
+        dt <- copy(dt_contributors()$top)
+        setorder(dt, Gains)
+        plot_bar(dt, 'Scheme', 'Gains', color = '#2f7d57')
+    })
+
+    output$bottom_contributors <- renderPlotly({
+        dt <- copy(dt_contributors()$bottom)
+        setorder(dt, -Gains)
+        plot_bar(dt, 'Scheme', 'Gains', color = '#b3261e')
+    })
+
+    output$category_allocation <- renderPlotly({
+        dt <- dt_category_alloc()
+        plot_bar(dt, 'Group', 'Cur Value', color = '#1f5f8b')
+    })
+
+    output$amc_allocation <- renderPlotly({
+        dt <- dt_amc_alloc()
+        plot_bar(dt, 'Group', 'Cur Value', color = '#546a7b')
+    })
+
+    output$top_funds_value <- renderPlotly({
+        dt <- copy(dt_top_funds_value())
+        setorder(dt, `Cur Value`)
+        plot_bar(dt, 'Group', 'Cur Value', color = '#1f5f8b')
+    })
+
+    output$quality_diagnostics <- DT::renderDataTable({
+        datatable(dt_quality(), rownames = FALSE, class = dt_class,
+                  options = dt_options(dom = 't', paging = FALSE, scrollX = FALSE)) %>%
+            formatStyle('Severity',
+                color = styleEqual(c('OK', 'Info', 'Medium', 'High'),
+                                   c('#067647', '#175cd3', '#b54708', '#b42318')),
+                fontWeight = 'bold'
+            )
+    })
+
+    output$match_explainability <- DT::renderDataTable({
+        datatable(dt_match_explain(), rownames = FALSE, filter = 'top',
+                  class = dt_class,
+                  options = dt_options(pageLength = input$settings_page_size %||% 25)) %>%
+            format_pct_cols(columns = 'Confidence', digits = 3)
+    })
+
     output$gains <- DT::renderDataTable(
         datatable(dt_gains_table(), rownames = FALSE, class = dt_class,
                   options = dt_options(dom = 't', ordering = FALSE,
@@ -544,7 +710,7 @@ function(input, output, session) {
 
     output$summary <- DT::renderDataTable(
         datatable(dt_mf_xirrs(), filter = 'top', class = dt_class,
-                  options = dt_options(pageLength = 25)) %>%
+                  options = dt_options(pageLength = input$settings_page_size %||% 25)) %>%
             format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
                                           'RealizedGains', 'UnrealizedGains'),
                               digits = 2) %>%
@@ -569,7 +735,7 @@ function(input, output, session) {
                       ordering = TRUE,
                       dom = 'Bfrtip',
                       buttons = c('copy', 'csv', 'excel'),
-                      pageLength = 100
+                      pageLength = input$settings_page_size %||% 100
                   ),
                   class = dt_class) %>%
             format_money_cols(columns = c('Amount'), digits = 2) %>%
@@ -663,7 +829,7 @@ function(input, output, session) {
             highlight       = TRUE,
             compact         = TRUE,
             searchable      = TRUE,
-            defaultPageSize = 50,
+            defaultPageSize = input$settings_page_size %||% 50,
             theme           = reactableTheme(
                 headerStyle      = list(background = '#37474F', color = 'white'),
                 rowSelectedStyle = list(background = '#e3f2fd'),
@@ -787,7 +953,7 @@ function(input, output, session) {
     output$nav_status <- DT::renderDataTable({
         dt <- nav_status_log()
         datatable(dt, rownames = FALSE, class = dt_class,
-                  options = dt_options(pageLength = 50, dom = 't',
+                  options = dt_options(pageLength = input$settings_page_size %||% 50, dom = 't',
                                        ordering = FALSE)) %>%
             formatStyle('Source',
                 backgroundColor = styleEqual(
@@ -798,5 +964,47 @@ function(input, output, session) {
                 )
             )
     })
+
+    output$download_report <- downloadHandler(
+        filename = function() {
+            paste0('cas-portfolio-report-', Sys.Date(), '.html')
+        },
+        content = function(file) {
+            req(analysis_ready())
+            warnings <- period_warnings()
+            css <- paste0(
+                'body{font-family:Inter,Arial,sans-serif;color:#172033;margin:32px;}',
+                'h1,h2{color:#172033;}',
+                'table{border-collapse:collapse;width:100%;margin:12px 0 28px;}',
+                'th,td{border:1px solid #d0d5dd;padding:6px 8px;font-size:12px;}',
+                'th{background:#f2f4f7;text-align:left;}',
+                '.warn{background:#fffaeb;border:1px solid #fedf89;padding:12px;border-radius:8px;white-space:pre-wrap;}'
+            )
+            html <- paste0(
+                '<!doctype html><html><head><meta charset="utf-8"><title>CAS Portfolio Report</title>',
+                '<style>', css, '</style></head><body>',
+                '<h1>CAS Portfolio Report</h1>',
+                '<p>Generated ', htmltools::htmlEscape(as.character(Sys.time())), '</p>',
+                '<h2>Summary</h2>', html_table(dt_gains_table()),
+                '<h2>Top funds by current value</h2>',
+                html_table(head(dt_mf_xirrs()[order(-Cur.Value)], 20)),
+                '<h2>Top gain contributors</h2>',
+                html_table(dt_contributors()$top),
+                '<h2>Data quality diagnostics</h2>',
+                html_table(dt_quality()),
+                '<h2>Scheme match explainability</h2>',
+                html_table(dt_match_explain()),
+                if (length(warnings) > 0) {
+                    paste0('<h2>Warnings</h2><div class="warn">',
+                           htmltools::htmlEscape(paste(warnings, collapse = '\n')),
+                           '</div>')
+                } else {
+                    '<h2>Warnings</h2><p>No selected-period warnings.</p>'
+                },
+                '</body></html>'
+            )
+            writeLines(html, file, useBytes = TRUE)
+        }
+    )
 
 }

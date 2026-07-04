@@ -2,8 +2,11 @@
 # Produces transaction data from pdftools::pdf_text() output.  Functions accept a
 # parser state explicitly; legacy global-state fallback is kept for old scripts.
 
-cas_parser_file <- tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) NA_character_)
-cas_parser_dir <- if (!is.na(cas_parser_file)) dirname(cas_parser_file) else getwd()
+cas_parser_dir <- getOption('cas_analysis.app_dir')
+if (is.null(cas_parser_dir)) {
+    cas_parser_file <- tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) NA_character_)
+    cas_parser_dir <- if (!is.na(cas_parser_file)) dirname(cas_parser_file) else getwd()
+}
 source(file.path(cas_parser_dir, 'cas_regex.R'))
 
 legacy_cas_state <- function() {

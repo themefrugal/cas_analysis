@@ -108,6 +108,23 @@ body {
     font-weight: 700;
     margin-top: 0.35rem;
 }
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+.diagnostic-ok {
+    color: #067647;
+    font-weight: 650;
+}
+.diagnostic-warn {
+    color: #b54708;
+    font-weight: 650;
+}
+.diagnostic-high {
+    color: #b42318;
+    font-weight: 650;
+}
 .help-image {
     max-width: 100%;
     height: auto;
@@ -154,10 +171,33 @@ analysis_controls <- sidebar(
     )
 )
 
+settings_script <- tags$script(HTML("
+document.addEventListener('shiny:connected', function() {
+  ['analytics_hierarchy', 'settings_page_size', 'mf_name'].forEach(function(id) {
+    const value = localStorage.getItem('cas_' + id);
+    if (value !== null) {
+      setTimeout(function() {
+        try {
+          const parsed = JSON.parse(value);
+          $('#' + id).val(parsed).trigger('change');
+          Shiny.setInputValue(id, parsed, {priority: 'event'});
+        } catch(e) {
+          $('#' + id).val(value).trigger('change');
+          Shiny.setInputValue(id, value, {priority: 'event'});
+        }
+      }, 900);
+    }
+  });
+});
+$(document).on('change', '#analytics_hierarchy, #settings_page_size, #mf_name', function() {
+  localStorage.setItem('cas_' + this.id, JSON.stringify($(this).val()));
+});
+"))
+
 page_navbar(
     title = "CAS Portfolio Analytics",
     theme = app_theme,
-    header = tags$head(tags$style(HTML(app_css))),
+    header = tags$head(tags$style(HTML(app_css)), settings_script),
 
     nav_panel(
         "Summary",
@@ -269,6 +309,99 @@ page_navbar(
             card(
                 card_header("Portfolio analytics"),
                 reactable::reactableOutput("analytics_table")
+            )
+        )
+    ),
+
+    nav_panel(
+        "Fund Detail",
+        div(
+            class = "section-stack",
+            card(
+                card_header("Drilldown"),
+                selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE),
+                uiOutput("fund_detail_kpis")
+            ),
+            card(
+                card_header("Match explanation"),
+                DT::dataTableOutput("fund_match_detail")
+            ),
+            card(
+                card_header("Fund transactions"),
+                DT::dataTableOutput("fund_detail_transactions")
+            )
+        )
+    ),
+
+    nav_panel(
+        "Insights",
+        div(
+            class = "section-stack",
+            layout_columns(
+                col_widths = c(6, 6),
+                card(
+                    card_header("Top gain contributors"),
+                    plotlyOutput("top_contributors", height = "360px")
+                ),
+                card(
+                    card_header("Weakest contributors"),
+                    plotlyOutput("bottom_contributors", height = "360px")
+                )
+            ),
+            layout_columns(
+                col_widths = c(6, 6),
+                card(
+                    card_header("Category allocation"),
+                    plotlyOutput("category_allocation", height = "360px")
+                ),
+                card(
+                    card_header("AMC allocation"),
+                    plotlyOutput("amc_allocation", height = "360px")
+                )
+            ),
+            card(
+                card_header("Top funds by current value"),
+                plotlyOutput("top_funds_value", height = "380px")
+            )
+        )
+    ),
+
+    nav_panel(
+        "Diagnostics",
+        div(
+            class = "section-stack",
+            card(
+                card_header("Data quality dashboard"),
+                DT::dataTableOutput("quality_diagnostics")
+            ),
+            card(
+                card_header("Scheme match explainability"),
+                DT::dataTableOutput("match_explainability")
+            )
+        )
+    ),
+
+    nav_panel(
+        "Report",
+        div(
+            class = "section-stack",
+            card(
+                card_header("Export report"),
+                div(
+                    class = "control-note",
+                    "Download a standalone HTML snapshot of the current portfolio summary, attribution, diagnostics, and warnings."
+                ),
+                br(),
+                downloadButton("download_report", "Download HTML report", class = "btn-primary")
+            ),
+            card(
+                card_header("Preferences"),
+                numericInput("settings_page_size", "Default table page size", value = 25,
+                             min = 10, max = 200, step = 5),
+                div(
+                    class = "control-note",
+                    "Benchmark, hierarchy, and page size preferences are saved in this browser."
+                )
             )
         )
     ),

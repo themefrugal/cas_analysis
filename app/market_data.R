@@ -371,6 +371,76 @@ match_fund_to_scheme <- function(cas_fund_name, norm_mfs, codes = NULL) {
     NA_character_
 }
 
+explain_fund_match <- function(cas_fund_name, lookup, scheme_code = NA_character_) {
+    cleaned <- extract_fund_name(cas_fund_name)
+    norm_cas <- normalize_fund_name(cleaned)
+    cas_words <- unique(strsplit(norm_cas, ' ', fixed = TRUE)[[1]])
+    stopwords <- c('direct', 'regular', 'plan', 'growth', 'idcw', 'fund',
+                   'scheme', 'option', 'dividend', 'bonus', 'monthly',
+                   'quarterly', 'annual', 'reinvest', 'payout', 'weekly',
+                   'daily', 'of', 'the', 'and', 'fof')
+
+    score_words <- function(mw) {
+        inter <- intersect(cas_words, mw)
+        if (length(inter) == 0) return(0)
+        max(length(inter) / length(mw), length(inter) / length(cas_words))
+    }
+
+    method <- 'No match'
+    score <- NA_real_
+    matched_name <- NA_character_
+    isin <- regmatches(cas_fund_name,
+                       regexpr('INF[A-Z0-9]{9}', cas_fund_name, ignore.case = TRUE))
+    if (length(isin) != 1L || nchar(isin) == 0) isin <- NA_character_
+
+    if (!is.na(scheme_code)) {
+        idx <- which(lookup$codes == as.character(scheme_code))[1]
+        if (!is.na(idx)) {
+            matched_name <- lookup$norm_names[idx]
+            exact_idx <- which(lookup$norm_names == norm_cas)
+            if (length(exact_idx) > 0 && lookup$codes[exact_idx[1]] == as.character(scheme_code)) {
+                method <- 'Exact normalized name'
+                score <- 1
+            } else if (!is.na(isin)) {
+                amfi <- isin_to_amfi(isin)
+                if (!is.na(amfi) && amfi == as.character(scheme_code)) {
+                    method <- 'ISIN'
+                    score <- 1
+                }
+            }
+            if (method == 'No match') {
+                mw <- lookup$words[[idx]]
+                inter <- intersect(cas_words, mw)
+                brand_words <- setdiff(inter, stopwords)
+                score <- score_words(mw)
+                method <- if (score >= 0.9 && length(brand_words) > 0) {
+                    'High-confidence word overlap'
+                } else if (score >= 0.6) {
+                    'Approximate word overlap'
+                } else {
+                    'Fallback match'
+                }
+            }
+        }
+    }
+
+    data.table(
+        Fund = extract_fund_name(cas_fund_name),
+        SchemeCode = ifelse(is.na(scheme_code), NA_character_, as.character(scheme_code)),
+        Method = method,
+        Confidence = ifelse(is.na(score), NA_real_, round(score, 3)),
+        ISIN = isin,
+        MatchedName = matched_name
+    )
+}
+
+explain_fund_matches <- function(fund_scheme_map, lookup) {
+    rows <- lapply(names(fund_scheme_map), function(f) {
+        explain_fund_match(f, lookup, fund_scheme_map[[f]])
+    })
+    rbindlist(rows, fill = TRUE)
+}
+
 pre_warm_navs <- function(fund_scheme_map, required_date = Sys.Date(),
                           progress_fn = NULL) {
     if (!dir.exists(NAV_CACHE_DIR)) dir.create(NAV_CACHE_DIR, recursive = TRUE)
