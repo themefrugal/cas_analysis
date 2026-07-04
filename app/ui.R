@@ -376,6 +376,25 @@ page_navbar(
         "Insights",
         div(
             class = "section-stack",
+            card(
+                card_header("Chart controls"),
+                layout_columns(
+                    col_widths = c(6, 6),
+                    selectInput(
+                        "insights_sort_order",
+                        "Sort order",
+                        choices = c("Descending" = "desc", "Ascending" = "asc"),
+                        selected = "desc"
+                    ),
+                    radioButtons(
+                        "insights_display_mode",
+                        "Display",
+                        choices = c("Value" = "value", "Percentage" = "percent"),
+                        selected = "value",
+                        inline = TRUE
+                    )
+                )
+            ),
             layout_columns(
                 col_widths = c(6, 6),
                 card(

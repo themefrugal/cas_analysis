@@ -108,6 +108,33 @@ test_that("custom analytics grouping only allows Folio below Scheme", {
     )
 })
 
+test_that("performance contributors include gain share percentages", {
+    leaves <- data.table(
+        Scheme = c('Fund A', 'Fund B', 'Fund C'),
+        `Cur Value` = c(120, 90, 80),
+        Invested = c(100, 100, 100),
+        Redeemed = c(0, 0, 0),
+        Gains = c(20, -10, -20)
+    )
+
+    contributors <- get_performance_contributors(leaves, top_n = 3)
+    combined <- rbindlist(contributors, use.names = TRUE)
+
+    expect_true('Gain Share' %in% names(contributors$top))
+    expect_equal(
+        contributors$top[Scheme == 'Fund A']$`Gain Share`,
+        40
+    )
+    expect_equal(
+        contributors$bottom[Scheme == 'Fund C']$`Gain Share`,
+        -40
+    )
+    expect_equal(
+        sum(unique(combined[, .(Scheme, `Gain Share`)])$`Gain Share`),
+        -20
+    )
+})
+
 test_that("diagnostics count unmatched funds and switches", {
     dt <- data.table(
         fund = c('Fund A', 'Fund A', 'Fund B'),

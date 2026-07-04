@@ -62,15 +62,33 @@ pct_label <- function(x) {
     ifelse(is.na(x), 'N/A', paste0(round(x, 3), '%'))
 }
 
-plot_bar <- function(dt, x_col, y_col, title = NULL, color = '#1f5f8b') {
+prepare_bar_dt <- function(dt, y_col, sort_order = 'desc') {
+    dt <- copy(as.data.table(dt))
+    if (nrow(dt) == 0 || !y_col %in% names(dt)) return(dt)
+    if (identical(sort_order, 'asc')) {
+        setorderv(dt, y_col, order = 1, na.last = TRUE)
+    } else {
+        setorderv(dt, y_col, order = -1, na.last = TRUE)
+    }
+    dt
+}
+
+plot_bar <- function(dt, x_col, y_col, title = NULL, color = '#1f5f8b',
+                     sort_order = 'desc', percent = FALSE) {
     req(nrow(dt) > 0)
+    dt <- prepare_bar_dt(dt, y_col, sort_order)
+    suffix <- if (percent) '%' else ''
+    hover_fmt <- if (percent) '%{y:.2f}%' else '%{y:,.0f}'
     plot_ly(dt, x = as.formula(paste0('~`', x_col, '`')),
             y = as.formula(paste0('~`', y_col, '`')),
             type = 'bar',
             marker = list(color = color),
-            hovertemplate = '%{x}<br>%{y:,.0f}<extra></extra>') %>%
-        layout(title = title, xaxis = list(title = ''),
-               yaxis = list(title = ''), margin = list(b = 90))
+            hovertemplate = paste0('%{x}<br>', hover_fmt, '<extra></extra>')) %>%
+        layout(title = title,
+               xaxis = list(title = '', categoryorder = 'array',
+                            categoryarray = dt[[x_col]]),
+               yaxis = list(title = suffix),
+               margin = list(b = 90))
 }
 
 html_table <- function(df) {
@@ -667,30 +685,47 @@ function(input, output, session) {
 
     output$top_contributors <- renderPlotly({
         dt <- copy(dt_contributors()$top)
-        setorder(dt, Gains)
-        plot_bar(dt, 'Scheme', 'Gains', color = '#2f7d57')
+        percent <- identical(input$insights_display_mode, 'percent')
+        y_col <- if (percent) 'Gain Share' else 'Gains'
+        plot_bar(dt, 'Scheme', y_col, color = '#2f7d57',
+                 sort_order = input$insights_sort_order %||% 'desc',
+                 percent = percent)
     })
 
     output$bottom_contributors <- renderPlotly({
         dt <- copy(dt_contributors()$bottom)
-        setorder(dt, -Gains)
-        plot_bar(dt, 'Scheme', 'Gains', color = '#b3261e')
+        percent <- identical(input$insights_display_mode, 'percent')
+        y_col <- if (percent) 'Gain Share' else 'Gains'
+        plot_bar(dt, 'Scheme', y_col, color = '#b3261e',
+                 sort_order = input$insights_sort_order %||% 'desc',
+                 percent = percent)
     })
 
     output$category_allocation <- renderPlotly({
         dt <- dt_category_alloc()
-        plot_bar(dt, 'Group', 'Cur Value', color = '#1f5f8b')
+        percent <- identical(input$insights_display_mode, 'percent')
+        y_col <- if (percent) 'Weight' else 'Cur Value'
+        plot_bar(dt, 'Group', y_col, color = '#1f5f8b',
+                 sort_order = input$insights_sort_order %||% 'desc',
+                 percent = percent)
     })
 
     output$amc_allocation <- renderPlotly({
         dt <- dt_amc_alloc()
-        plot_bar(dt, 'Group', 'Cur Value', color = '#546a7b')
+        percent <- identical(input$insights_display_mode, 'percent')
+        y_col <- if (percent) 'Weight' else 'Cur Value'
+        plot_bar(dt, 'Group', y_col, color = '#546a7b',
+                 sort_order = input$insights_sort_order %||% 'desc',
+                 percent = percent)
     })
 
     output$top_funds_value <- renderPlotly({
         dt <- copy(dt_top_funds_value())
-        setorder(dt, `Cur Value`)
-        plot_bar(dt, 'Group', 'Cur Value', color = '#1f5f8b')
+        percent <- identical(input$insights_display_mode, 'percent')
+        y_col <- if (percent) 'Weight' else 'Cur Value'
+        plot_bar(dt, 'Group', y_col, color = '#1f5f8b',
+                 sort_order = input$insights_sort_order %||% 'desc',
+                 percent = percent)
     })
 
     output$quality_diagnostics <- DT::renderDataTable({

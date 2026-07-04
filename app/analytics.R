@@ -257,6 +257,8 @@ get_performance_contributors <- function(dt_leaves, top_n = 10) {
                         Redeemed = sum(Redeemed, na.rm = TRUE),
                         Gains = sum(Gains, na.rm = TRUE)),
                     by = Scheme]
+    total_abs_gains <- sum(abs(by_scheme$Gains), na.rm = TRUE)
+    by_scheme[, `Gain Share` := if (total_abs_gains > 0) Gains / total_abs_gains * 100 else NA_real_]
     setorder(by_scheme, -Gains)
     list(
         top = head(by_scheme, top_n),
