@@ -85,11 +85,18 @@ get_fund_summary_dt <- function(dt_all, fund_name) {
 function(input, output, session) {
     updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
     nav_status_cache <- reactiveVal(NULL)
+    analysis_ready <- reactiveVal(FALSE)
 
     init_proc <- reactive({
         req(input$file1, input$file1$datapath)
         parse_cas_pdf(input$file1$datapath, input$password)
     })
+
+    observeEvent(input$file1, {
+        analysis_ready(FALSE)
+        nav_status_cache(NULL)
+        period_warnings(character(0))
+    }, ignoreInit = TRUE)
 
     dt_base_txns <- eventReactive(input$btn_proc, {
         withProgress(message = 'Parsing CAS PDF...', value = 0.5, {
@@ -167,9 +174,6 @@ function(input, output, session) {
     })
 
     period_warnings <- reactiveVal(character(0))
-
-    # Gate: FALSE until the full processing pipeline completes after a PDF load.
-    analysis_ready <- reactiveVal(FALSE)
 
     # Single orchestrated observer for the full post-upload pipeline.
     # All slow work happens here with a visible progress bar so the user
@@ -500,6 +504,19 @@ function(input, output, session) {
         dt_all_txns
     })
 
+    output$workflow_status <- renderUI({
+        if (isTRUE(analysis_ready())) {
+            return(div(class = 'workflow-status done', 'Analysis ready'))
+        }
+        if (is.null(input$file1)) {
+            return(div(class = 'workflow-status idle', 'Waiting for CAS PDF'))
+        }
+        if (input$btn_proc > 0) {
+            return(div(class = 'workflow-status ready', 'Processing analysis...'))
+        }
+        div(class = 'workflow-status ready', 'File selected. Click Analyze.')
+    })
+
     output$gains <- DT::renderDataTable(
         datatable(dt_gains_table(), rownames = FALSE, class = dt_class,
                   options = dt_options(dom = 't', ordering = FALSE,
@@ -507,10 +524,10 @@ function(input, output, session) {
             format_money_cols(columns = c('Amount'), digits = 2)
     )
 
-    output$period_warnings <- renderText({
+    output$period_warnings <- renderUI({
         w <- period_warnings()
         if (length(w) == 0) return(NULL)
-        paste("Warning:", paste(w, collapse = "\n"))
+        div(class = 'warning-box', paste("Warning:", paste(w, collapse = "\n")))
     })
 
     output$benchmark <- DT::renderDataTable({

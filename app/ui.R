@@ -37,6 +37,48 @@ body {
     font-size: 0.86rem;
     line-height: 1.35;
 }
+.workflow-status {
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-top: 0.75rem;
+    padding: 0.7rem 0.8rem;
+}
+.workflow-status.idle {
+    background: #f2f4f7;
+    color: #475467;
+}
+.workflow-status.ready {
+    background: #eaf4ff;
+    color: #175cd3;
+}
+.workflow-status.done {
+    background: #ecfdf3;
+    color: #067647;
+}
+.warning-box {
+    background: #fffaeb;
+    border: 1px solid #fedf89;
+    border-radius: 8px;
+    color: #93370d;
+    font-size: 0.9rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    white-space: pre-wrap;
+}
+.empty-state {
+    align-items: center;
+    color: #667085;
+    display: flex;
+    min-height: 180px;
+    text-align: center;
+}
+.empty-state strong {
+    color: #172033;
+    display: block;
+    font-size: 1.05rem;
+    margin-bottom: 0.35rem;
+}
 .section-stack {
     display: flex;
     flex-direction: column;
@@ -94,6 +136,7 @@ analysis_controls <- sidebar(
     fileInput("file1", "CAS PDF"),
     passwordInput("password", "PDF password"),
     actionButton("btn_proc", "Analyze", class = "btn-primary w-100"),
+    uiOutput("workflow_status"),
     conditionalPanel(
         condition = "input.btn_proc > 0",
         hr(),
@@ -122,6 +165,18 @@ page_navbar(
             sidebar = analysis_controls,
             div(
                 class = "section-stack",
+                conditionalPanel(
+                    condition = "input.btn_proc === 0",
+                    card(
+                        div(
+                            class = "empty-state",
+                            div(
+                                strong("Upload a CAS PDF to begin"),
+                                "The analysis workspace will populate after parsing, fund matching, NAV loading, and portfolio calculations complete."
+                            )
+                        )
+                    )
+                ),
                 div(
                     class = "kpi-grid",
                     div(
@@ -138,7 +193,7 @@ page_navbar(
                 card(
                     card_header(textOutput("text_ovr_sum", inline = TRUE)),
                     DT::dataTableOutput("gains"),
-                    verbatimTextOutput("period_warnings")
+                    uiOutput("period_warnings")
                 ),
                 conditionalPanel(
                     condition = "input.btn_proc > 0",
