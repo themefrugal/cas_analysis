@@ -265,7 +265,6 @@ app_sidebar <- sidebar(
     ),
     div(
         class = "app-nav",
-        nav_button("nav_summary", "Summary"),
         nav_button("nav_benchmark", "Benchmark"),
         nav_button("nav_portfolio", "Portfolio"),
         nav_button("nav_analytics", "Analytics"),
@@ -333,11 +332,11 @@ page_sidebar(
     tags$head(tags$style(HTML(app_css)), settings_script),
     navset_hidden(
         id = "main_nav",
-        selected = "summary",
+        selected = "benchmark",
 
     nav_panel(
-        "Summary",
-        value = "summary",
+        "Benchmark",
+        value = "benchmark",
         div(
             class = "section-stack",
             conditionalPanel(
@@ -369,15 +368,7 @@ page_sidebar(
                 card_header(textOutput("text_ovr_sum", inline = TRUE)),
                 DT::dataTableOutput("gains"),
                 uiOutput("period_warnings")
-            )
-        )
-    ),
-
-    nav_panel(
-        "Benchmark",
-        value = "benchmark",
-        div(
-            class = "section-stack",
+            ),
             card(
                 card_header("Benchmark comparison"),
                 selectizeInput("mf_name", "Benchmarks", choices = c(), multiple = TRUE,
@@ -414,7 +405,7 @@ page_sidebar(
                 card_header("Grouping"),
                 layout_columns(
                     col_widths = c(4, 8),
-                    selectInput(
+                    selectizeInput(
                         "analytics_hierarchy",
                         "Hierarchy",
                         choices = c(
@@ -424,7 +415,8 @@ page_sidebar(
                             "Category -> AMC -> Sub-Category -> Scheme",
                             "Custom"
                         ),
-                        selected = "AMC -> Category -> Sub-Category -> Scheme"
+                        selected = "AMC -> Category -> Sub-Category -> Scheme",
+                        options = list(dropdownParent = "body")
                     ),
                     conditionalPanel(
                         condition = "input.analytics_hierarchy === 'Custom'",
@@ -509,11 +501,12 @@ page_sidebar(
                 card_header("Chart controls"),
                 layout_columns(
                     col_widths = c(6, 6),
-                    selectInput(
+                    selectizeInput(
                         "insights_sort_order",
                         "Sort order",
                         choices = c("Descending" = "desc", "Ascending" = "asc"),
-                        selected = "desc"
+                        selected = "desc",
+                        options = list(dropdownParent = "body")
                     ),
                     radioButtons(
                         "insights_display_mode",

@@ -168,17 +168,13 @@ function(input, output, session) {
         } else {
             current_tab <- isolate(input$main_nav)
             if (current_tab %in% c("diagnostics", "nav_status")) {
-                select_main_nav("summary", "nav_summary")
+                select_main_nav("benchmark", "nav_benchmark")
             }
             bslib::nav_hide(id = "main_nav", target = "diagnostics", session = session)
             bslib::nav_hide(id = "main_nav", target = "nav_status", session = session)
             updateActionButton(session, "toggle_health_tabs", label = "Show health-check tabs")
         }
     }
-
-    observeEvent(input$nav_summary, {
-        select_main_nav("summary", "nav_summary")
-    }, ignoreInit = TRUE)
 
     observeEvent(input$nav_benchmark, {
         select_main_nav("benchmark", "nav_benchmark")
@@ -222,7 +218,7 @@ function(input, output, session) {
 
     session$onFlushed(function() {
         set_health_tabs_visible(FALSE)
-        set_active_nav("nav_summary")
+        set_active_nav("nav_benchmark")
     }, once = TRUE)
 
     observeEvent(input$toggle_health_tabs, {
