@@ -65,49 +65,19 @@ body {
     font-size: 0.86rem;
     line-height: 1.35;
 }
-.control-band {
-    background: #ffffff;
-    border-bottom: 1px solid #e4e8ef;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-    margin: 0 0 1rem;
-    padding: 0.85rem 1rem 0.4rem;
+.bslib-sidebar-layout {
+    --bslib-sidebar-main-bg: #f6f8fb;
 }
-.control-grid {
-    align-items: end;
-    display: grid;
-    gap: 0.75rem;
-    grid-template-columns: minmax(260px, 1.5fr) minmax(190px, 0.9fr) minmax(150px, 0.7fr) minmax(180px, 0.9fr);
-}
-.control-grid-secondary {
-    align-items: start;
-    display: grid;
-    gap: 0.75rem;
-    grid-template-columns: minmax(260px, 1fr) minmax(220px, 1fr) minmax(260px, 1.4fr);
-    margin-top: 0.5rem;
-}
-.control-band .form-group,
-.control-band .shiny-input-container {
-    margin-bottom: 0.45rem;
+.analysis-sidebar .form-group,
+.analysis-sidebar .shiny-input-container {
+    margin-bottom: 0.9rem;
     width: 100%;
 }
-.control-band .btn {
-    margin-bottom: 0.45rem;
+.analysis-sidebar .btn {
+    margin-bottom: 0.9rem;
 }
-.control-band .workflow-status {
-    margin-bottom: 0.45rem;
-    margin-top: 0;
-}
-@media (max-width: 1100px) {
-    .control-grid,
-    .control-grid-secondary {
-        grid-template-columns: 1fr 1fr;
-    }
-}
-@media (max-width: 700px) {
-    .control-grid,
-    .control-grid-secondary {
-        grid-template-columns: 1fr;
-    }
+.analysis-sidebar .workflow-status {
+    margin-bottom: 0.9rem;
 }
 .workflow-status {
     border-radius: 8px;
@@ -236,7 +206,8 @@ table.dataTable tbody td {
 .card,
 .bslib-card,
 .section-stack,
-.bslib-grid {
+.bslib-grid,
+.bslib-sidebar-layout {
     overflow: visible;
 }
 .selectize-control {
@@ -268,17 +239,14 @@ sample_pdf_links <- if (length(sample_pdf_files) > 0) {
     NULL
 }
 
-control_band <- div(
-    class = "control-band",
+analysis_controls <- sidebar(
+    width = 330,
     div(
-        class = "control-grid",
+        class = "analysis-sidebar",
         fileInput("file1", "CAS PDF"),
         passwordInput("password", "PDF password"),
         actionButton("btn_proc", "Analyze", class = "btn-primary w-100"),
-        uiOutput("workflow_status")
-    ),
-    div(
-        class = "control-grid-secondary",
+        uiOutput("workflow_status"),
         dateRangeInput(
             "date_range",
             "Analysis period",
@@ -321,10 +289,8 @@ page_navbar(
     id = "main_nav",
     selected = "benchmark",
     theme = app_theme,
-    header = tagList(
-        tags$head(tags$style(HTML(app_css)), settings_script),
-        control_band
-    ),
+    sidebar = analysis_controls,
+    header = tags$head(tags$style(HTML(app_css)), settings_script),
 
     nav_panel(
         "Benchmark",
