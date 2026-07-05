@@ -110,7 +110,7 @@ body {
 }
 .detail-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0.85rem;
 }
 .diagnostic-ok {
@@ -376,27 +376,42 @@ page_navbar(
         "Fund Detail",
         div(
             class = "section-stack",
-            card(
-                card_header("Fund summary"),
-                div(
-                    class = "control-note",
-                    "Select a row to open that fund in the detail section below."
+            navset_tab(
+                id = "fund_detail_section",
+                nav_panel(
+                    "Fund Summary",
+                    card(
+                        card_header("Fund summary"),
+                        div(
+                            class = "control-note",
+                            "Select a row to open that fund in the drilldown section."
+                        ),
+                        DT::dataTableOutput("summary")
+                    )
                 ),
-                DT::dataTableOutput("summary")
-            ),
-            card(
-                card_header("Drilldown"),
-                selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE,
-                               options = list(dropdownParent = "body")),
-                uiOutput("fund_detail_kpis")
-            ),
-            card(
-                card_header("Match explanation"),
-                DT::dataTableOutput("fund_match_detail")
-            ),
-            card(
-                card_header("Fund transactions"),
-                DT::dataTableOutput("fund_detail_transactions")
+                nav_panel(
+                    "Drilldown",
+                    div(
+                        class = "section-stack",
+                        card(
+                            card_header("Drilldown"),
+                            selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE,
+                                           options = list(dropdownParent = "body")),
+                            uiOutput("fund_detail_kpis")
+                        ),
+                        card(
+                            card_header("Match explanation"),
+                            DT::dataTableOutput("fund_match_detail")
+                        )
+                    )
+                ),
+                nav_panel(
+                    "Fund Transactions",
+                    card(
+                        card_header("Fund transactions"),
+                        DT::dataTableOutput("fund_detail_transactions")
+                    )
+                )
             )
         )
     ),
