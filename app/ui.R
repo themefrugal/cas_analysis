@@ -410,9 +410,9 @@ page_navbar(
             navset_tab(
                 id = "fund_detail_section",
                 nav_panel(
-                    "Fund Summary",
+                    "Funds Summary",
                     card(
-                        card_header("Fund summary"),
+                        card_header("Funds summary"),
                         div(
                             class = "control-note",
                             "Select a row to open that fund in the drilldown section."
@@ -433,14 +433,11 @@ page_navbar(
                         card(
                             card_header("Match explanation"),
                             DT::dataTableOutput("fund_match_detail")
+                        ),
+                        card(
+                            card_header("Fund transactions"),
+                            DT::dataTableOutput("fund_detail_transactions")
                         )
-                    )
-                ),
-                nav_panel(
-                    "Fund Transactions",
-                    card(
-                        card_header("Fund transactions"),
-                        DT::dataTableOutput("fund_detail_transactions")
                     )
                 )
             )
