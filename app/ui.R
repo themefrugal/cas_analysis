@@ -17,23 +17,47 @@ app_css <- "
 body {
     background: #f6f8fb;
 }
-.navbar {
-    box-shadow: 0 1px 0 rgba(16, 24, 40, 0.08);
+.app-brand {
+    margin-bottom: 1rem;
 }
-.navbar .nav-link {
-    border-radius: 6px 6px 0 0;
-    color: rgba(255, 255, 255, 0.86) !important;
+.app-brand-title {
+    color: #172033;
+    font-size: 1.05rem;
+    font-weight: 800;
+    line-height: 1.1;
 }
-.navbar .nav-link:hover,
-.navbar .nav-link:focus {
-    color: #ffffff !important;
-    background: rgba(255, 255, 255, 0.10);
+.app-brand-subtitle {
+    color: #667085;
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    margin-top: 0.25rem;
+    text-transform: uppercase;
 }
-.navbar .nav-link.active,
-.navbar .nav-item.show .nav-link {
-    color: #ffffff !important;
-    background: rgba(255, 255, 255, 0.14) !important;
-    box-shadow: inset 0 -3px 0 #ffffff;
+.app-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+}
+.app-nav .btn {
+    border: 0;
+    border-radius: 8px;
+    color: #344054;
+    font-weight: 650;
+    justify-content: flex-start;
+    padding: 0.55rem 0.7rem;
+    text-align: left;
+}
+.app-nav .btn:hover,
+.app-nav .btn:focus {
+    background: #eaf4ff;
+    color: #1f5f8b;
+}
+.app-nav .btn.active {
+    background: #1f5f8b;
+    color: #ffffff;
+    box-shadow: inset 3px 0 0 #bfd7ea;
 }
 .nav-tabs .nav-link {
     color: #475467;
@@ -228,8 +252,31 @@ sample_pdf_links <- if (length(sample_pdf_files) > 0) {
     NULL
 }
 
-analysis_controls <- sidebar(
-    width = 330,
+nav_button <- function(id, label) {
+    actionButton(id, label, class = "btn-light w-100 app-nav-button")
+}
+
+app_sidebar <- sidebar(
+    width = 310,
+    div(
+        class = "app-brand",
+        div(class = "app-brand-title", "CAS Portfolio Analytics"),
+        div(class = "app-brand-subtitle", "Mutual fund workspace")
+    ),
+    div(
+        class = "app-nav",
+        nav_button("nav_summary", "Summary"),
+        nav_button("nav_benchmark", "Benchmark"),
+        nav_button("nav_portfolio", "Portfolio"),
+        nav_button("nav_analytics", "Analytics"),
+        nav_button("nav_fund_detail", "Fund Detail"),
+        nav_button("nav_insights", "Insights"),
+        nav_button("nav_transactions", "Transactions"),
+        nav_button("nav_report", "Report"),
+        nav_button("nav_help", "Help"),
+        uiOutput("health_nav_links")
+    ),
+    hr(),
     fileInput("file1", "CAS PDF"),
     passwordInput("password", "PDF password"),
     sample_pdf_links,
@@ -273,56 +320,62 @@ document.addEventListener('shiny:connected', function() {
 $(document).on('change', '#analytics_hierarchy, #settings_page_size, #mf_name', function() {
   localStorage.setItem('cas_' + this.id, JSON.stringify($(this).val()));
 });
+Shiny.addCustomMessageHandler('set-active-nav', function(id) {
+  $('.app-nav .btn').removeClass('active');
+  $('#' + id).addClass('active');
+});
 "))
 
-page_navbar(
+page_sidebar(
     title = "CAS Portfolio Analytics",
-    id = "main_nav",
     theme = app_theme,
-    header = tags$head(tags$style(HTML(app_css)), settings_script),
+    sidebar = app_sidebar,
+    tags$head(tags$style(HTML(app_css)), settings_script),
+    navset_hidden(
+        id = "main_nav",
+        selected = "summary",
 
     nav_panel(
         "Summary",
-        layout_sidebar(
-            sidebar = analysis_controls,
-            div(
-                class = "section-stack",
-                conditionalPanel(
-                    condition = "input.btn_proc === 0",
-                    card(
+        value = "summary",
+        div(
+            class = "section-stack",
+            conditionalPanel(
+                condition = "input.btn_proc === 0",
+                card(
+                    div(
+                        class = "empty-state",
                         div(
-                            class = "empty-state",
-                            div(
-                                strong("Upload a CAS PDF to begin"),
-                                "The analysis workspace will populate after parsing, fund matching, NAV loading, and portfolio calculations complete."
-                            )
+                            strong("Upload a CAS PDF to begin"),
+                            "The analysis workspace will populate after parsing, fund matching, NAV loading, and portfolio calculations complete."
                         )
                     )
+                )
+            ),
+            div(
+                class = "kpi-grid",
+                div(
+                    class = "kpi-card",
+                    div(class = "kpi-label", "Overall return"),
+                    div(class = "kpi-value", textOutput("pf_xirr", inline = TRUE))
                 ),
                 div(
-                    class = "kpi-grid",
-                    div(
-                        class = "kpi-card",
-                        div(class = "kpi-label", "Overall return"),
-                        div(class = "kpi-value", textOutput("pf_xirr", inline = TRUE))
-                    ),
-                    div(
-                        class = "kpi-card",
-                        div(class = "kpi-label", "Period return"),
-                        div(class = "kpi-value", textOutput("period_xirr", inline = TRUE))
-                    )
-                ),
-                card(
-                    card_header(textOutput("text_ovr_sum", inline = TRUE)),
-                    DT::dataTableOutput("gains"),
-                    uiOutput("period_warnings")
+                    class = "kpi-card",
+                    div(class = "kpi-label", "Period return"),
+                    div(class = "kpi-value", textOutput("period_xirr", inline = TRUE))
                 )
+            ),
+            card(
+                card_header(textOutput("text_ovr_sum", inline = TRUE)),
+                DT::dataTableOutput("gains"),
+                uiOutput("period_warnings")
             )
         )
     ),
 
     nav_panel(
         "Benchmark",
+        value = "benchmark",
         div(
             class = "section-stack",
             card(
@@ -338,6 +391,7 @@ page_navbar(
 
     nav_panel(
         "Portfolio",
+        value = "portfolio",
         div(
             class = "section-stack",
             card(
@@ -353,6 +407,7 @@ page_navbar(
 
     nav_panel(
         "Analytics",
+        value = "analytics",
         div(
             class = "section-stack",
             card(
@@ -405,6 +460,7 @@ page_navbar(
 
     nav_panel(
         "Fund Detail",
+        value = "fund_detail",
         div(
             class = "section-stack",
             navset_tab(
@@ -446,6 +502,7 @@ page_navbar(
 
     nav_panel(
         "Insights",
+        value = "insights",
         div(
             class = "section-stack",
             card(
@@ -514,6 +571,7 @@ page_navbar(
 
     nav_panel(
         "Report",
+        value = "report",
         div(
             class = "section-stack",
             card(
@@ -546,6 +604,7 @@ page_navbar(
 
     nav_panel(
         "Transactions",
+        value = "transactions",
         card(
             card_header("Transaction ledger"),
             DT::dataTableOutput("transactions")
@@ -567,6 +626,7 @@ page_navbar(
 
     nav_panel(
         "Help",
+        value = "help",
         card(
             card_header("Import guide"),
             tags$p(
@@ -578,5 +638,6 @@ page_navbar(
             tags$p("Request the encrypted CAS PDF from CAMS, then upload it here with the PDF password."),
             tags$img(src = "cams_screenshot.png", class = "help-image")
         )
+    )
     )
 )
