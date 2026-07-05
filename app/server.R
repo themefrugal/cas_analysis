@@ -62,6 +62,13 @@ pct_label <- function(x) {
     ifelse(is.na(x), 'N/A', paste0(round(x, 3), '%'))
 }
 
+clean_display_zero <- function(x, digits = 2) {
+    if (!is.numeric(x)) return(x)
+    threshold <- 0.5 * 10^-digits
+    x[!is.na(x) & abs(x) < threshold] <- 0
+    x
+}
+
 prepare_bar_dt <- function(dt, y_col, sort_order = 'desc') {
     dt <- copy(as.data.table(dt))
     if (nrow(dt) == 0 || !y_col %in% names(dt)) return(dt)
@@ -916,6 +923,17 @@ function(input, output, session) {
     output$analytics_table <- renderReactable({
         req(analysis_ready())
         df <- as.data.frame(dt_analytics_hierarchy())
+        display_digits <- c(
+            'Cur Value' = 2,
+            Invested = 2,
+            Redeemed = 2,
+            'Net Invested' = 2,
+            Gains = 2,
+            'XIRR%' = 3
+        )
+        for (col in intersect(names(display_digits), names(df))) {
+            df[[col]] <- clean_display_zero(df[[col]], display_digits[[col]])
+        }
 
         # ── Column definitions ────────────────────────────────────────────────
         # Header colour ramp for hierarchy depth (dark → lighter blue)
