@@ -17,47 +17,23 @@ app_css <- "
 body {
     background: #f6f8fb;
 }
-.app-brand {
-    margin-bottom: 1rem;
+.navbar {
+    box-shadow: 0 1px 0 rgba(16, 24, 40, 0.08);
 }
-.app-brand-title {
-    color: #172033;
-    font-size: 1.05rem;
-    font-weight: 800;
-    line-height: 1.1;
+.navbar .nav-link {
+    border-radius: 6px 6px 0 0;
+    color: rgba(255, 255, 255, 0.86) !important;
 }
-.app-brand-subtitle {
-    color: #667085;
-    font-size: 0.78rem;
-    font-weight: 650;
-    letter-spacing: 0;
-    margin-top: 0.25rem;
-    text-transform: uppercase;
+.navbar .nav-link:hover,
+.navbar .nav-link:focus {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.10);
 }
-.app-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-bottom: 1rem;
-}
-.app-nav .btn {
-    border: 0;
-    border-radius: 8px;
-    color: #344054;
-    font-weight: 650;
-    justify-content: flex-start;
-    padding: 0.55rem 0.7rem;
-    text-align: left;
-}
-.app-nav .btn:hover,
-.app-nav .btn:focus {
-    background: #eaf4ff;
-    color: #1f5f8b;
-}
-.app-nav .btn.active {
-    background: #1f5f8b;
-    color: #ffffff;
-    box-shadow: inset 3px 0 0 #bfd7ea;
+.navbar .nav-link.active,
+.navbar .nav-item.show .nav-link {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.14) !important;
+    box-shadow: inset 0 -3px 0 #ffffff;
 }
 .nav-tabs .nav-link {
     color: #475467;
@@ -75,9 +51,6 @@ body {
     border-bottom-color: #1f5f8b !important;
     font-weight: 650;
 }
-.bslib-sidebar-layout {
-    --bslib-sidebar-main-bg: #f6f8fb;
-}
 .card {
     border: 1px solid #e4e8ef;
     box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
@@ -91,6 +64,50 @@ body {
     color: #667085;
     font-size: 0.86rem;
     line-height: 1.35;
+}
+.control-band {
+    background: #ffffff;
+    border-bottom: 1px solid #e4e8ef;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    margin: 0 0 1rem;
+    padding: 0.85rem 1rem 0.4rem;
+}
+.control-grid {
+    align-items: end;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: minmax(260px, 1.5fr) minmax(190px, 0.9fr) minmax(150px, 0.7fr) minmax(180px, 0.9fr);
+}
+.control-grid-secondary {
+    align-items: start;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: minmax(260px, 1fr) minmax(220px, 1fr) minmax(260px, 1.4fr);
+    margin-top: 0.5rem;
+}
+.control-band .form-group,
+.control-band .shiny-input-container {
+    margin-bottom: 0.45rem;
+    width: 100%;
+}
+.control-band .btn {
+    margin-bottom: 0.45rem;
+}
+.control-band .workflow-status {
+    margin-bottom: 0.45rem;
+    margin-top: 0;
+}
+@media (max-width: 1100px) {
+    .control-grid,
+    .control-grid-secondary {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+@media (max-width: 700px) {
+    .control-grid,
+    .control-grid-secondary {
+        grid-template-columns: 1fr;
+    }
 }
 .workflow-status {
     border-radius: 8px;
@@ -219,8 +236,7 @@ table.dataTable tbody td {
 .card,
 .bslib-card,
 .section-stack,
-.bslib-grid,
-.bslib-sidebar-layout {
+.bslib-grid {
     overflow: visible;
 }
 .selectize-control {
@@ -252,49 +268,28 @@ sample_pdf_links <- if (length(sample_pdf_files) > 0) {
     NULL
 }
 
-nav_button <- function(id, label) {
-    actionButton(id, label, class = "btn-light w-100 app-nav-button")
-}
-
-app_sidebar <- sidebar(
-    width = 310,
+control_band <- div(
+    class = "control-band",
     div(
-        class = "app-brand",
-        div(class = "app-brand-title", "CAS Portfolio Analytics"),
-        div(class = "app-brand-subtitle", "Mutual fund workspace")
+        class = "control-grid",
+        fileInput("file1", "CAS PDF"),
+        passwordInput("password", "PDF password"),
+        actionButton("btn_proc", "Analyze", class = "btn-primary w-100"),
+        uiOutput("workflow_status")
     ),
     div(
-        class = "app-nav",
-        nav_button("nav_benchmark", "Benchmark"),
-        nav_button("nav_portfolio", "Portfolio"),
-        nav_button("nav_analytics", "Analytics"),
-        nav_button("nav_fund_detail", "Fund Detail"),
-        nav_button("nav_insights", "Insights"),
-        nav_button("nav_transactions", "Transactions"),
-        nav_button("nav_report", "Report"),
-        nav_button("nav_help", "Help"),
-        uiOutput("health_nav_links")
-    ),
-    hr(),
-    fileInput("file1", "CAS PDF"),
-    passwordInput("password", "PDF password"),
-    sample_pdf_links,
-    actionButton("btn_proc", "Analyze", class = "btn-primary w-100"),
-    uiOutput("workflow_status"),
-    conditionalPanel(
-        condition = "input.btn_proc > 0",
-        hr(),
+        class = "control-grid-secondary",
         dateRangeInput(
             "date_range",
             "Analysis period",
             start = "1900-01-01",
             end = "2099-12-31"
+        ),
+        sample_pdf_links,
+        div(
+            class = "control-note",
+            "Upload a CAMS CAS PDF and run the analysis. NAV and scheme metadata are cached locally for faster repeat runs."
         )
-    ),
-    hr(),
-    div(
-        class = "control-note",
-        "Upload a CAMS CAS PDF and run the analysis. NAV and scheme metadata are cached locally for faster repeat runs."
     )
 )
 
@@ -319,20 +314,17 @@ document.addEventListener('shiny:connected', function() {
 $(document).on('change', '#analytics_hierarchy, #settings_page_size, #mf_name', function() {
   localStorage.setItem('cas_' + this.id, JSON.stringify($(this).val()));
 });
-Shiny.addCustomMessageHandler('set-active-nav', function(id) {
-  $('.app-nav .btn').removeClass('active');
-  $('#' + id).addClass('active');
-});
 "))
 
-page_sidebar(
+page_navbar(
     title = "CAS Portfolio Analytics",
+    id = "main_nav",
+    selected = "benchmark",
     theme = app_theme,
-    sidebar = app_sidebar,
-    tags$head(tags$style(HTML(app_css)), settings_script),
-    navset_hidden(
-        id = "main_nav",
-        selected = "benchmark",
+    header = tagList(
+        tags$head(tags$style(HTML(app_css)), settings_script),
+        control_band
+    ),
 
     nav_panel(
         "Benchmark",
@@ -631,6 +623,5 @@ page_sidebar(
             tags$p("Request the encrypted CAS PDF from CAMS, then upload it here with the PDF password."),
             tags$img(src = "cams_screenshot.png", class = "help-image")
         )
-    )
     )
 )

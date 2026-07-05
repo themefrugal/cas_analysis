@@ -147,25 +147,6 @@ function(input, output, session) {
     analysis_ready <- reactiveVal(FALSE)
     health_tabs_visible <- reactiveVal(FALSE)
 
-    set_active_nav <- function(button_id) {
-        session$sendCustomMessage("set-active-nav", button_id)
-    }
-
-    select_main_nav <- function(target, button_id) {
-        bslib::nav_select(id = "main_nav", selected = target, session = session)
-        set_active_nav(button_id)
-    }
-
-    output$health_nav_links <- renderUI({
-        if (!isTRUE(health_tabs_visible())) return(NULL)
-        tagList(
-            actionButton("nav_diagnostics", "Diagnostics",
-                         class = "btn-light w-100 app-nav-button"),
-            actionButton("nav_nav_status", "NAV Status",
-                         class = "btn-light w-100 app-nav-button")
-        )
-    })
-
     set_health_tabs_visible <- function(visible) {
         health_tabs_visible(visible)
         if (isTRUE(visible)) {
@@ -175,7 +156,8 @@ function(input, output, session) {
         } else {
             current_tab <- isolate(input$main_nav)
             if (current_tab %in% c("diagnostics", "nav_status")) {
-                select_main_nav("benchmark", "nav_benchmark")
+                bslib::nav_select(id = "main_nav", selected = "benchmark",
+                                  session = session)
             }
             bslib::nav_hide(id = "main_nav", target = "diagnostics", session = session)
             bslib::nav_hide(id = "main_nav", target = "nav_status", session = session)
@@ -183,49 +165,8 @@ function(input, output, session) {
         }
     }
 
-    observeEvent(input$nav_benchmark, {
-        select_main_nav("benchmark", "nav_benchmark")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_portfolio, {
-        select_main_nav("portfolio", "nav_portfolio")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_analytics, {
-        select_main_nav("analytics", "nav_analytics")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_fund_detail, {
-        select_main_nav("fund_detail", "nav_fund_detail")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_insights, {
-        select_main_nav("insights", "nav_insights")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_transactions, {
-        select_main_nav("transactions", "nav_transactions")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_report, {
-        select_main_nav("report", "nav_report")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_help, {
-        select_main_nav("help", "nav_help")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_diagnostics, {
-        select_main_nav("diagnostics", "nav_diagnostics")
-    }, ignoreInit = TRUE)
-
-    observeEvent(input$nav_nav_status, {
-        select_main_nav("nav_status", "nav_nav_status")
-    }, ignoreInit = TRUE)
-
     session$onFlushed(function() {
         set_health_tabs_visible(FALSE)
-        set_active_nav("nav_benchmark")
     }, once = TRUE)
 
     observeEvent(input$toggle_health_tabs, {
