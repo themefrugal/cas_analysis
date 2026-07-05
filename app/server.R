@@ -141,6 +141,30 @@ get_fund_summary_dt <- function(dt_all, fund_name) {
     get_mf_summary(dt_fund, folio_ord_num = 1)
 }
 
+nav_on_or_before <- function(dt_navs, dates) {
+    dates <- as.Date(dates)
+    if (length(dates) == 0) {
+        return(data.table(date = as.Date(character()),
+                          nav_date = as.Date(character()),
+                          nav = numeric()))
+    }
+    if (is.null(dt_navs) || nrow(dt_navs) == 0) {
+        return(data.table(date = dates,
+                          nav_date = as.Date(rep(NA_character_, length(dates))),
+                          nav = rep(NA_real_, length(dates))))
+    }
+
+    navs <- copy(as.data.table(dt_navs))[order(date)]
+    idx <- findInterval(dates, navs$date)
+    out_nav <- rep(NA_real_, length(dates))
+    out_date <- as.Date(rep(NA_character_, length(dates)))
+    ok <- idx > 0
+    out_nav[ok] <- navs$nav[idx[ok]]
+    out_date[ok] <- navs$date[idx[ok]]
+
+    data.table(date = dates, nav_date = out_date, nav = out_nav)
+}
+
 function(input, output, session) {
     updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
     nav_status_cache <- reactiveVal(NULL)
@@ -474,8 +498,8 @@ function(input, output, session) {
         dt_base_txns()[fund == input$fund_detail]
     })
 
-    observeEvent(input$summary_rows_selected, {
-        selected <- input$summary_rows_selected
+    observeEvent(input$fund_summary_rows_selected, {
+        selected <- input$fund_summary_rows_selected
         req(length(selected) == 1)
         dt <- dt_mf_xirrs()
         req(selected <= nrow(dt))
@@ -552,7 +576,8 @@ function(input, output, session) {
 
         list_benchmarks <- list()
         for (mf_name in input$mf_name) {
-            dt_navs <- mnav(mf_name)
+            dt_navs <- tryCatch(mnav(mf_name), error = function(e) NULL)
+            if (is.null(dt_navs) || nrow(dt_navs) == 0) next
 
             # ── Benchmark start value ─────────────────────────────────────────
             # Mirrors portfolio dt_period_xirr: if period starts from the very
@@ -562,24 +587,29 @@ function(input, output, session) {
                 bm_start_val   <- 0
                 bm_start_units <- 0
             } else {
-                pre_bm         <- merge(dt_all_inv[date < start_d], dt_navs, by = 'date')
-                bm_start_units <- sum(pre_bm$units <- pre_bm$amt / pre_bm$nav)
-                nav_at_start   <- dt_navs[date <= start_d]
-                if (nrow(nav_at_start) == 0) next
-                bm_start_val   <- bm_start_units * nav_at_start[.N]$nav
+                pre_inv <- dt_all_inv[date < start_d]
+                pre_nav <- nav_on_or_before(dt_navs, pre_inv$date)
+                pre_bm <- cbind(pre_inv, nav = pre_nav$nav)
+                pre_bm <- pre_bm[!is.na(nav)]
+                bm_start_units <- sum(pre_bm$amt / pre_bm$nav)
+                nav_at_start <- nav_on_or_before(dt_navs, start_d)
+                if (is.na(nav_at_start$nav[1])) next
+                bm_start_val <- bm_start_units * nav_at_start$nav[1]
             }
 
             # ── Period transactions in benchmark units ────────────────────────
-            dt_period_bm  <- merge(dt_period_inv, dt_navs, by = 'date')
+            period_nav <- nav_on_or_before(dt_navs, dt_period_inv$date)
+            dt_period_bm <- cbind(dt_period_inv, nav = period_nav$nav)
+            dt_period_bm <- dt_period_bm[!is.na(nav)]
             dt_period_bm[, units := amt / nav]
             period_units  <- sum(dt_period_bm$units)
 
             # ── Benchmark end value ───────────────────────────────────────────
             total_units <- bm_start_units + period_units
-            nav_at_end  <- dt_navs[date <= end_d]
-            if (nrow(nav_at_end) == 0) next
-            bm_end_val  <- total_units * nav_at_end[.N]$nav
-            bm_end_date <- nav_at_end[.N]$date
+            nav_at_end <- nav_on_or_before(dt_navs, end_d)
+            if (is.na(nav_at_end$nav[1])) next
+            bm_end_val <- total_units * nav_at_end$nav[1]
+            bm_end_date <- nav_at_end$nav_date[1]
 
             # ── XIRR cash flows — identical structure to dt_period_xirr ──────
             #   +bm_start_val at start_d   (cost of entering existing position)
@@ -842,12 +872,15 @@ function(input, output, session) {
         if (is.null(input$mf_name) || length(input$mf_name) == 0) {
             return(div(class = "control-note", "Choose one or more benchmark funds to compare against your selected analysis period."))
         }
+        if (nrow(dt_bm_table()) == 0) {
+            return(div(class = "control-note", "No benchmark rows could be computed. Check NAV availability for the selected benchmark and analysis period."))
+        }
         NULL
     })
 
     output$benchmark <- DT::renderDataTable({
         dt <- dt_bm_table()
-        req(nrow(dt) > 0)
+        validate(need(nrow(dt) > 0, ""))
         datatable(dt, rownames = FALSE, class = dt_class,
                   options = dt_options(dom = 't', ordering = FALSE,
                                        paging = FALSE)) %>%
@@ -857,13 +890,13 @@ function(input, output, session) {
             format_pct_cols(columns = 'BenchmarkXIRR%', digits = 3)
     })
 
-    output$summary_empty <- renderUI({
+    output$fund_summary_empty <- renderUI({
         dt <- dt_mf_xirrs()
         if (nrow(dt) > 0) return(NULL)
         div(class = "control-note", "No fund-level rows are available for this CAS.")
     })
 
-    output$summary <- DT::renderDataTable({
+    output$fund_summary <- DT::renderDataTable({
         dt <- dt_mf_xirrs()
         req(nrow(dt) > 0)
         datatable(dt, filter = 'top', class = dt_class,

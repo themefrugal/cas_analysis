@@ -423,8 +423,8 @@ page_navbar(
                             class = "control-note",
                             "Select a row to open that fund in the drilldown section."
                         ),
-                        uiOutput("summary_empty"),
-                        DT::dataTableOutput("summary")
+                        uiOutput("fund_summary_empty"),
+                        DT::dataTableOutput("fund_summary")
                     )
                 ),
                 nav_panel(
