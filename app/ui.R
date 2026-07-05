@@ -172,8 +172,9 @@ table.dataTable tbody td {
     position: relative;
     z-index: 20;
 }
-.selectize-dropdown {
-    z-index: 3000 !important;
+.selectize-dropdown,
+.selectize-dropdown.form-control {
+    z-index: 10000 !important;
 }
 "
 
@@ -295,7 +296,8 @@ page_navbar(
             class = "section-stack",
             card(
                 card_header("Benchmark comparison"),
-                selectizeInput("mf_name", "Benchmarks", choices = c(), multiple = TRUE),
+                selectizeInput("mf_name", "Benchmarks", choices = c(), multiple = TRUE,
+                               options = list(dropdownParent = "body")),
                 uiOutput("benchmark_context"),
                 uiOutput("benchmark_empty"),
                 DT::dataTableOutput("benchmark")
@@ -347,6 +349,7 @@ page_navbar(
                             selected = c("Category", "Sub-Category"),
                             multiple = TRUE,
                             options = list(
+                                dropdownParent = "body",
                                 plugins = list("drag_drop", "remove_button"),
                                 placeholder = "Pick and order grouping levels"
                             )
@@ -383,7 +386,8 @@ page_navbar(
             ),
             card(
                 card_header("Drilldown"),
-                selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE),
+                selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE,
+                               options = list(dropdownParent = "body")),
                 uiOutput("fund_detail_kpis")
             ),
             card(
