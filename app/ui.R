@@ -231,6 +231,7 @@ $(document).on('change', '#analytics_hierarchy, #settings_page_size, #mf_name', 
 
 page_navbar(
     title = "CAS Portfolio Analytics",
+    id = "main_nav",
     theme = app_theme,
     header = tags$head(tags$style(HTML(app_css)), settings_script),
 
@@ -426,6 +427,7 @@ page_navbar(
 
     nav_panel(
         "Diagnostics",
+        value = "diagnostics",
         div(
             class = "section-stack",
             card(
@@ -459,6 +461,13 @@ page_navbar(
                 div(
                     class = "control-note",
                     "Benchmark, hierarchy, and page size preferences are saved in this browser."
+                ),
+                hr(),
+                actionButton("toggle_health_tabs", "Show health-check tabs",
+                             class = "btn-outline-secondary w-100"),
+                div(
+                    class = "control-note",
+                    "Diagnostics and NAV Status are intended for troubleshooting and are hidden during normal use."
                 )
             )
         )
@@ -474,6 +483,7 @@ page_navbar(
 
     nav_panel(
         "NAV Status",
+        value = "nav_status",
         card(
             card_header("NAV cache and scheme matching"),
             div(

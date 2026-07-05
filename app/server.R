@@ -138,6 +138,31 @@ function(input, output, session) {
     updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
     nav_status_cache <- reactiveVal(NULL)
     analysis_ready <- reactiveVal(FALSE)
+    health_tabs_visible <- reactiveVal(FALSE)
+
+    set_health_tabs_visible <- function(visible) {
+        health_tabs_visible(visible)
+        if (isTRUE(visible)) {
+            showTab(inputId = "main_nav", target = "diagnostics", session = session)
+            showTab(inputId = "main_nav", target = "nav_status", session = session)
+            updateActionButton(session, "toggle_health_tabs", label = "Hide health-check tabs")
+        } else {
+            if (input$main_nav %in% c("diagnostics", "nav_status")) {
+                updateNavbarPage(session, "main_nav", selected = "Summary")
+            }
+            hideTab(inputId = "main_nav", target = "diagnostics", session = session)
+            hideTab(inputId = "main_nav", target = "nav_status", session = session)
+            updateActionButton(session, "toggle_health_tabs", label = "Show health-check tabs")
+        }
+    }
+
+    session$onFlushed(function() {
+        set_health_tabs_visible(FALSE)
+    }, once = TRUE)
+
+    observeEvent(input$toggle_health_tabs, {
+        set_health_tabs_visible(!isTRUE(health_tabs_visible()))
+    }, ignoreInit = TRUE)
 
     init_proc <- reactive({
         req(input$file1, input$file1$datapath)
