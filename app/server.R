@@ -147,7 +147,8 @@ function(input, output, session) {
             showTab(inputId = "main_nav", target = "nav_status", session = session)
             updateActionButton(session, "toggle_health_tabs", label = "Hide health-check tabs")
         } else {
-            if (input$main_nav %in% c("diagnostics", "nav_status")) {
+            current_tab <- isolate(input$main_nav)
+            if (current_tab %in% c("diagnostics", "nav_status")) {
                 updateNavbarPage(session, "main_nav", selected = "Summary")
             }
             hideTab(inputId = "main_nav", target = "diagnostics", session = session)
