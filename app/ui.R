@@ -161,6 +161,20 @@ table.dataTable tbody td {
     margin-top: 0.4rem;
     font-size: 0.88rem;
 }
+.card,
+.bslib-card,
+.section-stack,
+.bslib-grid,
+.bslib-sidebar-layout {
+    overflow: visible;
+}
+.selectize-control {
+    position: relative;
+    z-index: 20;
+}
+.selectize-dropdown {
+    z-index: 3000 !important;
+}
 "
 
 sample_pdf_files <- list.files(
