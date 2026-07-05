@@ -413,8 +413,18 @@ function(input, output, session) {
 
     dt_mf_xirrs <- reactive({
         req(analysis_ready())
-        dt <- dt_filtered_txns()
+        dt <- dt_base_txns()
         funds <- unique(dt[description != 'Cur Value']$fund)
+        if (length(funds) == 0) {
+            return(data.table(
+                Fund = character(), Category = character(),
+                SubCategory = character(), Cur.Value = numeric(),
+                Invested = numeric(), Redeemed = numeric(),
+                RealizedGains = numeric(), UnrealizedGains = numeric(),
+                `XIRR%` = numeric(), StartDate = as.Date(character()),
+                RecentDate = as.Date(character())
+            ))
+        }
         dt_full <- rbindlist(lapply(funds, function(f) get_fund_summary_dt(dt, f)))
         names(dt_full)[names(dt_full) == 'XIRR'] <- 'XIRR%'
         dt_full <- merge(dt_full, fund_category_map()[, !'SchemeType'], by = 'Fund', all.x = TRUE)
@@ -847,15 +857,23 @@ function(input, output, session) {
             format_pct_cols(columns = 'BenchmarkXIRR%', digits = 3)
     })
 
-    output$summary <- DT::renderDataTable(
-        datatable(dt_mf_xirrs(), filter = 'top', class = dt_class,
+    output$summary_empty <- renderUI({
+        dt <- dt_mf_xirrs()
+        if (nrow(dt) > 0) return(NULL)
+        div(class = "control-note", "No fund-level rows are available for this CAS.")
+    })
+
+    output$summary <- DT::renderDataTable({
+        dt <- dt_mf_xirrs()
+        req(nrow(dt) > 0)
+        datatable(dt, filter = 'top', class = dt_class,
                   rownames = FALSE, selection = 'single',
                   options = dt_options(pageLength = input$settings_page_size %||% 25)) %>%
             format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
                                           'RealizedGains', 'UnrealizedGains'),
                               digits = 2) %>%
             format_pct_cols(columns = 'XIRR%', digits = 3)
-    )
+    })
 
     output$transactions <- DT::renderDataTable(
         datatable(dt_port_txns(), filter = 'top',
