@@ -402,18 +402,6 @@ function(input, output, session) {
         dt_full
     })
 
-    dt_folio_xirrs <- eventReactive(input$btn_proc, {
-        dt_all_txns <- dt_base_txns()
-        folio_ids <- unique(dt_all_txns$folio)
-        list_table <- list()
-        for (folio_id in folio_ids){
-            list_table <- c(list_table, list(get_mf_table_for_txns(dt_all_txns, folio_id)))
-        }
-        dt_full_table <- rbindlist(list_table)
-        names(dt_full_table)[names(dt_full_table) == 'XIRR'] <- 'XIRR%'
-        dt_full_table
-    })
-
     dt_match_explain <- reactive({
         req(analysis_ready())
         explain_fund_matches(fund_scheme_map(), scheme_lookup_all)
@@ -454,6 +442,15 @@ function(input, output, session) {
         req(analysis_ready(), input$fund_detail)
         dt_base_txns()[fund == input$fund_detail]
     })
+
+    observeEvent(input$summary_rows_selected, {
+        selected <- input$summary_rows_selected
+        req(length(selected) == 1)
+        dt <- dt_mf_xirrs()
+        req(selected <= nrow(dt))
+        updateSelectizeInput(session, "fund_detail",
+                             selected = dt[selected]$Fund)
+    }, ignoreInit = TRUE)
 
     dt_gains_table <- reactive({
         req(analysis_ready())
@@ -508,6 +505,10 @@ function(input, output, session) {
     })
 
     dt_bm_table <- reactive({
+        req(analysis_ready())
+        if (is.null(input$mf_name) || length(input$mf_name) == 0) {
+            return(data.table())
+        }
         start_d   <- input$date_range[1]
         end_d     <- input$date_range[2]
         dt_base   <- dt_base_txns()
@@ -584,7 +585,7 @@ function(input, output, session) {
                 `BenchmarkXIRR%` = round(bm_xirr * 100, 3)
             )
         }
-        rbindlist(list_benchmarks)
+        rbindlist(list_benchmarks, fill = TRUE)
     })
 
     dt_port_xirr <- eventReactive(input$btn_proc, {
@@ -784,6 +785,32 @@ function(input, output, session) {
         div(class = 'warning-box', paste("Warning:", paste(w, collapse = "\n")))
     })
 
+    output$benchmark_context <- renderUI({
+        if (!isTRUE(analysis_ready())) return(NULL)
+        req(input$date_range)
+        div(
+            class = "control-note",
+            paste0(
+                "Analysis period: ",
+                format(input$date_range[1], "%d-%b-%Y"),
+                " to ",
+                format(input$date_range[2], "%d-%b-%Y"),
+                ". Portfolio period XIRR: ",
+                pct_label(dt_period_xirr() * 100)
+            )
+        )
+    })
+
+    output$benchmark_empty <- renderUI({
+        if (!isTRUE(analysis_ready())) {
+            return(div(class = "empty-state", strong("Analyze a CAS PDF to compare benchmarks.")))
+        }
+        if (is.null(input$mf_name) || length(input$mf_name) == 0) {
+            return(div(class = "control-note", "Choose one or more benchmark funds to compare against your selected analysis period."))
+        }
+        NULL
+    })
+
     output$benchmark <- DT::renderDataTable({
         dt <- dt_bm_table()
         req(nrow(dt) > 0)
@@ -798,16 +825,8 @@ function(input, output, session) {
 
     output$summary <- DT::renderDataTable(
         datatable(dt_mf_xirrs(), filter = 'top', class = dt_class,
+                  rownames = FALSE, selection = 'single',
                   options = dt_options(pageLength = input$settings_page_size %||% 25)) %>%
-            format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
-                                          'RealizedGains', 'UnrealizedGains'),
-                              digits = 2) %>%
-            format_pct_cols(columns = 'XIRR%', digits = 3)
-    )
-
-    output$folio_level_summary <- DT::renderDataTable(
-        datatable(dt_folio_xirrs(), filter = 'top', class = dt_class,
-                  options = dt_options(pageLength = 10)) %>%
             format_money_cols(columns = c('Cur.Value', 'Invested', 'Redeemed',
                                           'RealizedGains', 'UnrealizedGains'),
                               digits = 2) %>%
@@ -909,10 +928,6 @@ function(input, output, session) {
 
     output$text_ovr_sum <- renderText({
         ifelse(input$btn_proc, 'Overall Summary', '')
-    })
-
-    output$text_fol_sum <- renderText({
-        ifelse(input$btn_proc, 'Fund Level Summary', '')
     })
 
     output$portfolio_curve <- renderPlotly({

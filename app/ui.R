@@ -270,19 +270,21 @@ page_navbar(
                     card_header(textOutput("text_ovr_sum", inline = TRUE)),
                     DT::dataTableOutput("gains"),
                     uiOutput("period_warnings")
-                ),
-                conditionalPanel(
-                    condition = "input.btn_proc > 0",
-                    card(
-                        card_header("Benchmark comparison"),
-                        selectizeInput("mf_name", "Benchmarks", choices = c(), multiple = TRUE),
-                        DT::dataTableOutput("benchmark")
-                    )
-                ),
-                card(
-                    card_header(textOutput("text_fol_sum", inline = TRUE)),
-                    DT::dataTableOutput("summary")
                 )
+            )
+        )
+    ),
+
+    nav_panel(
+        "Benchmark",
+        div(
+            class = "section-stack",
+            card(
+                card_header("Benchmark comparison"),
+                selectizeInput("mf_name", "Benchmarks", choices = c(), multiple = TRUE),
+                uiOutput("benchmark_context"),
+                uiOutput("benchmark_empty"),
+                DT::dataTableOutput("benchmark")
             )
         )
     ),
@@ -357,6 +359,14 @@ page_navbar(
         "Fund Detail",
         div(
             class = "section-stack",
+            card(
+                card_header("Fund summary"),
+                div(
+                    class = "control-note",
+                    "Select a row to open that fund in the detail section below."
+                ),
+                DT::dataTableOutput("summary")
+            ),
             card(
                 card_header("Drilldown"),
                 selectizeInput("fund_detail", "Fund", choices = c(), multiple = FALSE),
