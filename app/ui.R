@@ -20,6 +20,37 @@ body {
 .navbar {
     box-shadow: 0 1px 0 rgba(16, 24, 40, 0.08);
 }
+.navbar .nav-link {
+    border-radius: 6px 6px 0 0;
+    color: rgba(255, 255, 255, 0.86) !important;
+}
+.navbar .nav-link:hover,
+.navbar .nav-link:focus {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.10);
+}
+.navbar .nav-link.active,
+.navbar .nav-item.show .nav-link {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.14) !important;
+    box-shadow: inset 0 -3px 0 #ffffff;
+}
+.nav-tabs .nav-link {
+    color: #475467;
+    border: 0;
+    border-bottom: 3px solid transparent;
+}
+.nav-tabs .nav-link:hover,
+.nav-tabs .nav-link:focus {
+    color: #1f5f8b;
+    border-bottom-color: #bfd7ea;
+}
+.nav-tabs .nav-link.active {
+    color: #1f5f8b !important;
+    background: transparent !important;
+    border-bottom-color: #1f5f8b !important;
+    font-weight: 650;
+}
 .bslib-sidebar-layout {
     --bslib-sidebar-main-bg: #f6f8fb;
 }
