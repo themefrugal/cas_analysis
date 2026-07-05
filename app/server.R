@@ -387,21 +387,34 @@ function(input, output, session) {
         dt
     })
 
+    last_custom_group_update <- reactiveVal(list(
+        choices = character(0),
+        selected = character(0)
+    ))
+
     observeEvent(input$analytics_custom_cols, {
+        if (!identical(input$analytics_hierarchy, 'Custom')) return()
         raw <- input$analytics_custom_cols
         sanitized <- sanitize_custom_analytics_groups(raw)
         choices <- available_custom_analytics_groups(sanitized)
+        last_update <- last_custom_group_update()
 
-        if (!identical(raw, sanitized)) {
+        if (!identical(last_update$choices, choices) ||
+            !identical(last_update$selected, sanitized)) {
+            last_custom_group_update(list(choices = choices, selected = sanitized))
             updateSelectizeInput(session, 'analytics_custom_cols',
-                                 choices = choices, selected = sanitized,
-                                 server = TRUE)
-        } else {
-            updateSelectizeInput(session, 'analytics_custom_cols',
-                                 choices = choices, selected = raw,
-                                 server = TRUE)
+                                 choices = choices, selected = sanitized)
         }
     }, ignoreInit = FALSE)
+
+    observeEvent(input$analytics_hierarchy, {
+        if (!identical(input$analytics_hierarchy, 'Custom')) {
+            last_custom_group_update(list(
+                choices = character(0),
+                selected = character(0)
+            ))
+        }
+    }, ignoreInit = TRUE)
 
     analytics_group_cols <- reactive({
         hierarchy_map <- list(
