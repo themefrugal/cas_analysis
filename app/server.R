@@ -169,6 +169,7 @@ function(input, output, session) {
     updateSelectizeInput(session, "mf_name", choices = unique(dt_mfs$schemeName), server=TRUE)
     nav_status_cache <- reactiveVal(NULL)
     analysis_ready <- reactiveVal(FALSE)
+    analysis_error <- reactiveVal(NULL)
     health_tabs_visible <- reactiveVal(FALSE)
 
     set_health_tabs_visible <- function(visible) {
@@ -204,6 +205,7 @@ function(input, output, session) {
 
     observeEvent(input$file1, {
         analysis_ready(FALSE)
+        analysis_error(NULL)
         nav_status_cache(NULL)
         period_warnings(character(0))
     }, ignoreInit = TRUE)
@@ -291,6 +293,11 @@ function(input, output, session) {
     # after every step completes, so no downstream reactive fires prematurely.
     observeEvent(input$btn_proc, {
         analysis_ready(FALSE)
+        analysis_error(NULL)
+        nav_status_cache(NULL)
+        period_warnings(character(0))
+
+        tryCatch({
 
         withProgress(message = 'Processing CAS...', value = 0, {
 
@@ -335,10 +342,22 @@ function(input, output, session) {
             selected = sort(unique(dt[description != 'Cur Value']$fund))[1],
             server = TRUE)
         analysis_ready(TRUE)
+        }, error = function(e) {
+            msg <- conditionMessage(e)
+            friendly <- if (grepl('locked|password|Invalid password', msg, ignore.case = TRUE)) {
+                'Could not open the CAS PDF. Please check the PDF password and try again.'
+            } else {
+                paste('Could not analyze the CAS PDF:', msg)
+            }
+            analysis_ready(FALSE)
+            analysis_error(friendly)
+            showNotification(friendly, type = 'error', duration = 8)
+        })
 
     }, ignoreInit = TRUE)
 
     dt_filtered_txns <- reactive({
+        req(analysis_ready())
         dt <- dt_base_txns()
         start_d <- input$date_range[1]
         end_d <- input$date_range[2]
@@ -717,6 +736,9 @@ function(input, output, session) {
     })
 
     output$workflow_status <- renderUI({
+        if (!is.null(analysis_error())) {
+            return(div(class = 'workflow-status error', analysis_error()))
+        }
         if (isTRUE(analysis_ready())) {
             return(div(class = 'workflow-status done', 'Analysis ready'))
         }
@@ -1000,13 +1022,14 @@ function(input, output, session) {
     })
 
     output$pf_xirr <- renderText({
+        req(analysis_ready())
         val <- dt_port_xirr()
         if (is.na(val)) return("N/A")
         paste0(round(val * 100, 3), "%")
     })
 
     output$period_xirr <- renderText({
-        req(input$btn_proc > 0)
+        req(analysis_ready())
         val <- dt_period_xirr()
         if (is.na(val)) return("N/A")
         paste0(round(val * 100, 3), "%")

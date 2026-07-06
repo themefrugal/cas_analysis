@@ -98,6 +98,10 @@ body {
     background: #ecfdf3;
     color: #067647;
 }
+.workflow-status.error {
+    background: #fef3f2;
+    color: #b42318;
+}
 .warning-box {
     background: #fffaeb;
     border: 1px solid #fedf89;
