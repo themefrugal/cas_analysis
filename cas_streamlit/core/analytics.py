@@ -180,6 +180,7 @@ def available_custom_analytics_groups(labels: Iterable[str] | None) -> list[str]
 def get_performance_contributors(dt_leaves: pd.DataFrame, top_n: int = 10) -> dict[str, pd.DataFrame]:
     if dt_leaves.empty:
         return {"top": pd.DataFrame(), "bottom": pd.DataFrame()}
+    dt_leaves = ensure_gains_column(dt_leaves)
     grouped = (
         dt_leaves.groupby("Scheme", dropna=False)[["Cur Value", "Invested", "Redeemed", "Gains"]]
         .sum()
@@ -193,9 +194,22 @@ def get_performance_contributors(dt_leaves: pd.DataFrame, top_n: int = 10) -> di
     }
 
 
+def ensure_gains_column(dt_leaves: pd.DataFrame) -> pd.DataFrame:
+    out = dt_leaves.copy()
+    if "Gains" not in out.columns:
+        if {"RealizedGains", "UnrealizedGains"}.issubset(out.columns):
+            out["Gains"] = out["RealizedGains"].fillna(0) + out["UnrealizedGains"].fillna(0)
+        elif {"Cur Value", "Invested", "Redeemed"}.issubset(out.columns):
+            out["Gains"] = out["Cur Value"].fillna(0) - out["Invested"].fillna(0) + out["Redeemed"].fillna(0)
+        else:
+            out["Gains"] = np.nan
+    return out
+
+
 def get_allocation_summary(dt_leaves: pd.DataFrame, group_col: str, top_n: int | None = None) -> pd.DataFrame:
     if dt_leaves.empty:
         return pd.DataFrame()
+    dt_leaves = ensure_gains_column(dt_leaves)
     out = dt_leaves.groupby(group_col, dropna=False)[["Cur Value", "Gains"]].sum().reset_index()
     total_value = out["Cur Value"].sum()
     out["Weight"] = out["Cur Value"] / total_value * 100 if total_value > 0 else np.nan

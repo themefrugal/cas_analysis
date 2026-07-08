@@ -10,6 +10,7 @@ import streamlit as st
 from cas_streamlit.core.analytics import (
     analytics_group_label_to_col,
     available_custom_analytics_groups,
+    ensure_gains_column,
     get_allocation_summary,
     get_performance_contributors,
     sanitize_custom_analytics_groups,
@@ -168,9 +169,9 @@ def main() -> None:
 
     with tabs[4]:
         st.subheader("Insights")
-        leaves = fund_summary(result, start, end).rename(
+        leaves = ensure_gains_column(fund_summary(result, start, end).rename(
             columns={"Fund": "Scheme", "Cur.Value": "Cur Value", "XIRR%": "XIRR%"}
-        )
+        ))
         if leaves.empty:
             st.info("No insight data is available.")
         else:
@@ -220,4 +221,3 @@ Upload the PDF, enter its password, and analyze. The sample PDFs in the sidebar
 use a blank password and contain fictional investor data.
 """
         )
-
