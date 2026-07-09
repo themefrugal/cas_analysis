@@ -10,9 +10,8 @@ if (!dir.exists(app_dir)) {
 
 setwd(app_dir)
 
-renv_activate <- file.path(app_dir, "renv", "activate.R")
-if (file.exists(renv_activate)) {
-    source(renv_activate)
+if (!requireNamespace("shiny", quietly = TRUE)) {
+    stop("The shiny package is not installed in the runtime R library")
 }
 
 message("Starting CAS Shiny app on 0.0.0.0:", port)

@@ -1,7 +1,6 @@
 FROM rocker/r-ver:4.5.3
 
 ENV RENV_CONFIG_SANDBOX_ENABLED=false \
-    RENV_PATHS_LIBRARY=/opt/renv/library \
     SHINY_APP_DIR=/srv/cas/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +31,7 @@ WORKDIR /srv/cas/app
 
 COPY app/renv.lock ./renv.lock
 
-RUN R -q -e "install.packages('renv', repos = 'https://cloud.r-project.org'); renv::restore(lockfile = 'renv.lock', prompt = FALSE)"
+RUN R -q -e "install.packages('renv', repos = 'https://cloud.r-project.org'); renv::restore(lockfile = 'renv.lock', library = .libPaths()[1], prompt = FALSE); stopifnot(requireNamespace('shiny', quietly = TRUE))"
 
 COPY app ./
 
