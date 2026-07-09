@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libssl-dev \
     libtiff5-dev \
+    libuv1-dev \
     libxml2-dev \
     make \
     zlib1g-dev \
