@@ -1,0 +1,12 @@
+.git
+.agents
+.claude
+.codex
+.ipynb_checkpoints
+.pytest_cache
+**/.ipynb_checkpoints
+**/__pycache__
+**/*.pyc
+**/.Rhistory
+hs_err_pid*.log
+cas_workout.ipynb

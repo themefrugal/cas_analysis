@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cas-analysis-shiny
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SHINY_APP_DIR
+        value: /srv/cas/app

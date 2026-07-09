@@ -17,6 +17,24 @@ Analysis of Mutual Fund Consolidated Account Statements (CAS) — a Shiny app th
 1. Install R dependencies (handled automatically on first run via `cas_reader.R`'s package bootstrap).
 2. Open `app/server.R` in RStudio and click **Run App**, or run `shiny::runApp("app")` from the repo root.
 
+## Deploying the R Shiny App on Render
+
+This repo includes Render-ready Docker and Blueprint files for the R Shiny app:
+
+- `Dockerfile` builds an R 4.5.3 image, restores packages from `app/renv.lock`, copies `app/`, and starts Shiny with `app/start_render.R`.
+- `render.yaml` defines a Docker web service named `cas-analysis-shiny`.
+- `.dockerignore` keeps local caches and development artifacts out of the Docker build while preserving the app data files under `app/`.
+
+To deploy:
+
+1. Push this repo to GitHub/GitLab/Bitbucket.
+2. In Render, create a new Blueprint from the repo, or create a Web Service with Language set to Docker.
+3. If using the manual Web Service flow, keep the Dockerfile path as `./Dockerfile`, the Docker context as `.`, and let the Dockerfile `CMD` start the app.
+4. Render sets `PORT=10000` by default; `app/start_render.R` also honors any custom `PORT` value configured for the service.
+5. After deployment, open the `onrender.com` URL for the `cas-analysis-shiny` service.
+
+The Shiny app requires `app/mf_codes.RData` and `app/mf_codes_equity.RData` at startup, so keep those files available in the deployed repo.
+
 ## Refreshing Scheme Data
 
 The app uses two local RData files for fund-name matching and the benchmark dropdown:

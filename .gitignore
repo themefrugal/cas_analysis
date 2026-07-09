@@ -1,0 +1,15 @@
+.ipynb_checkpoints/
+.pytest_cache/
+__pycache__/
+*.pyc
+.Rhistory
+.RData
+hs_err_pid*.log
+
+app/renv/library/
+app/renv/local/
+app/renv/cellar/
+app/renv/lock/
+app/renv/python/
+app/renv/sandbox/
+app/renv/staging/
