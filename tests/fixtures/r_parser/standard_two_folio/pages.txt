@@ -1,0 +1,13 @@
+Alpha Mutual Fund
+Folio No: 900000010 / 10                                  PAN: AAAAA0000A
+ALPHA-Alpha Growth Fund (Advisor: DIRECT)                                      Registrar : CAMS
+Opening Unit Balance: 0.000
+01-Jan-2024 Purchase (Continuous Offer)                 10,000.000    100.000       100.000    100.000
+Closing Unit Balance: 100.000    NAV: INR 110.000    Market Value on 31-Jan-2024: INR 11,000.000
+CAMSCASWS-SAMPLE Version:V1.0 Demo
+Beta Mutual Fund
+Folio No: 900000011 / 11                                  PAN: BBBBB1111B
+BETA-Beta Income Fund - ISIN: INF000000001 (Advisor: ARN-12345)                                      Registrar : CAMS
+Opening Unit Balance: 0.000
+05-Jan-2024 Purchase (Continuous Offer)                  5,000.000     50.000       100.000     50.000
+Closing Unit Balance: 50.000    NAV: INR 120.000    Market Value on 31-Jan-2024: INR 6,000.000

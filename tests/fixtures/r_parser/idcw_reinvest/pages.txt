@@ -1,0 +1,6 @@
+Gamma Mutual Fund
+Folio No: 900000012 / 12                                  PAN: CCCCC2222C
+GAMMA-Gamma Dividend Fund (Advisor: DIRECT)
+Opening Unit Balance: 0.000
+10-Jan-2024 ****IDCW Reinvest**** 1,000.000
+Closing Unit Balance: 0.000    NAV: INR 10.000    Market Value on 10-Jan-2024: INR 0.000

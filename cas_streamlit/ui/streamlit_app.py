@@ -49,7 +49,7 @@ def main() -> None:
             [""] + sample_paths,
             format_func=lambda path: "Choose a sample" if not path else path.split("/")[-1],
         )
-        analyze = st.button("Analyze", type="primary", use_container_width=True)
+        analyze = st.button("Analyze", type="primary", width="stretch")
 
         if analyze:
             source = uploaded_file
@@ -119,7 +119,7 @@ def main() -> None:
         summary, period_xirr, warnings = compute_period_summary(result, start, end)
         xirr_label = "N/A" if period_xirr is None else f"{period_xirr * 100:.3f}%"
         st.metric("Analysis Period XIRR", xirr_label)
-        st.dataframe(_money_style(summary, ["Amount"]), use_container_width=True, hide_index=True)
+        st.dataframe(_money_style(summary, ["Amount"]), width="stretch", hide_index=True)
         for warning in warnings:
             st.warning(warning)
         st.caption("Benchmark simulation uses NAV on or before each cash-flow date to avoid exact-date gaps.")
@@ -134,13 +134,13 @@ def main() -> None:
             fig.add_trace(go.Scatter(x=curve["date"], y=curve["net_invested"], name="Amount Invested", fill="tozeroy"))
             fig.add_trace(go.Scatter(x=curve["date"], y=curve["portfolio_value"], name="Portfolio Value", fill="tonexty"))
             fig.update_layout(height=460, yaxis_title="Value", hovermode="x unified")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         xirr_curve = result.xirr_curve.dropna(subset=["xirr"])
         if not xirr_curve.empty:
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=xirr_curve["date"], y=xirr_curve["xirr"], name="XIRR", mode="lines"))
             fig.update_layout(height=360, yaxis_title="XIRR (%)", hovermode="x unified")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with tabs[2]:
         st.subheader("Analytics")
@@ -153,7 +153,7 @@ def main() -> None:
         st.session_state.analytics_groups = labels
         groups = analytics_group_label_to_col(labels)
         if groups:
-            st.dataframe(hierarchy_table(result, groups), use_container_width=True, hide_index=True)
+            st.dataframe(hierarchy_table(result, groups), width="stretch", hide_index=True)
         else:
             st.info("Choose at least one grouping level.")
 
@@ -162,10 +162,10 @@ def main() -> None:
         funds = sorted(result.dt_base_txns["fund"].dropna().unique())
         selected = st.selectbox("Fund", funds, format_func=extract_fund_name)
         st.write("Funds Summary")
-        st.dataframe(_money_style(fund_summary(result, start, end)), use_container_width=True, hide_index=True)
+        st.dataframe(_money_style(fund_summary(result, start, end)), width="stretch", hide_index=True)
         st.write("Drilldown")
         fund_rows = result.dt_base_txns[result.dt_base_txns["fund"] == selected]
-        st.dataframe(fund_rows, use_container_width=True, hide_index=True)
+        st.dataframe(fund_rows, width="stretch", hide_index=True)
 
     with tabs[4]:
         st.subheader("Insights")
@@ -181,16 +181,16 @@ def main() -> None:
             alloc = alloc.sort_values(y_col, ascending=False)
             fig = go.Figure([go.Bar(x=alloc["Group"], y=alloc[y_col])])
             fig.update_layout(height=420, yaxis_title="%" if value_mode == "Percentage" else "Value")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             contributors = get_performance_contributors(leaves)
             c1, c2 = st.columns(2)
-            c1.dataframe(contributors["top"], use_container_width=True, hide_index=True)
-            c2.dataframe(contributors["bottom"], use_container_width=True, hide_index=True)
+            c1.dataframe(contributors["top"], width="stretch", hide_index=True)
+            c2.dataframe(contributors["bottom"], width="stretch", hide_index=True)
 
     with tabs[5]:
         st.subheader("Transactions")
         txns = filtered_transactions(result, start, end)
-        st.dataframe(txns, use_container_width=True, hide_index=True)
+        st.dataframe(txns, width="stretch", hide_index=True)
         csv = txns.to_csv(index=False).encode("utf-8")
         st.download_button("Download CSV", csv, "transactions.csv", "text/csv")
         buf = io.BytesIO()
@@ -205,12 +205,12 @@ def main() -> None:
     with tabs[6]:
         st.subheader("Report")
         show_health = st.toggle("Show health-check tables", value=False)
-        st.dataframe(result.fund_match_log, use_container_width=True, hide_index=True)
+        st.dataframe(result.fund_match_log, width="stretch", hide_index=True)
         if show_health:
             st.write("Diagnostics")
-            st.dataframe(result.diagnostics, use_container_width=True, hide_index=True)
+            st.dataframe(result.diagnostics, width="stretch", hide_index=True)
             st.write("NAV Status")
-            st.dataframe(result.nav_status_log, use_container_width=True, hide_index=True)
+            st.dataframe(result.nav_status_log, width="stretch", hide_index=True)
 
     with tabs[7]:
         st.subheader("Help")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -33,6 +34,8 @@ CLOSING_INLINE_PATTERN = re.compile(
     r"Closing Unit Balance:\s+([\d,.]+)\s+NAV:\s+INR\s+([\d,.]+)\s+"
     r"Market Value on\s+(\d{2}-[A-Za-z]{3}-\d{4}):\s+INR\s+([\d,.]+)"
 )
+IDCW_PATTERN = re.compile(r"^(\d{2}-[A-Za-z]{3}-\d{4})\s+\*+(.*)\*+\s+([,.0-9]+)")
+DATE_PREFIX_PATTERN = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{4}\b")
 FUND_NAME_PATTERN = re.compile(r"^[A-Z0-9]+\s*-\s*[A-Za-z&]")
 FUND_ADVISOR_PATTERN = re.compile(r"(.+)\(Advisor:\s+(.*)\)")
 FOLIO_PAN_PATTERN = re.compile(r"\s+PAN:\s+")
@@ -67,20 +70,63 @@ class CasState:
 
 
 def pdf_text(file: str | BinaryIO, password: str = "") -> list[str]:
+    candidates = _pdf_text_candidates(file, password)
+    if not candidates:
+        raise CasParseError("No readable text was found in the PDF.")
+    return candidates[0][1]
+
+
+def _read_pdf_bytes(file: str | BinaryIO) -> bytes:
+    if isinstance(file, str):
+        with open(file, "rb") as handle:
+            return handle.read()
+    pos = None
+    if hasattr(file, "tell") and hasattr(file, "seek"):
+        try:
+            pos = file.tell()
+        except Exception:
+            pos = None
+    data = file.read()
+    if pos is not None:
+        try:
+            file.seek(pos)
+        except Exception:
+            pass
+    return data
+
+
+def _pdf_text_candidates(file: str | BinaryIO, password: str = "") -> list[tuple[str, list[str]]]:
+    pdf_bytes = _read_pdf_bytes(file)
+    candidates: list[tuple[str, list[str]]] = []
+
     try:
         from pypdf import PdfReader
-    except ImportError:  # pragma: no cover - compatibility fallback
-        from PyPDF2 import PdfReader
 
-    reader = PdfReader(file)
-    if reader.is_encrypted:
-        result = reader.decrypt(password or "")
-        if result == 0:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        if reader.is_encrypted:
+            result = reader.decrypt(password or "")
+            if result == 0:
+                raise CasParseError("The PDF password is incorrect. Please correct it and analyze again.")
+        pages = [page.extract_text() or "" for page in reader.pages]
+        if any(page.strip() for page in pages):
+            candidates.append(("pypdf", pages))
+    except ImportError:
+        pass
+
+    try:
+        import fitz
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.needs_pass and not doc.authenticate(password or ""):
             raise CasParseError("The PDF password is incorrect. Please correct it and analyze again.")
-    pages = [page.extract_text() or "" for page in reader.pages]
-    if not any(page.strip() for page in pages):
-        raise CasParseError("No readable text was found in the PDF.")
-    return pages
+        pages = [page.get_text("text") or "" for page in doc]
+        doc.close()
+        if any(page.strip() for page in pages):
+            candidates.append(("pymupdf-text", pages))
+    except ImportError:
+        pass
+
+    return candidates
 
 
 def cas_state_from_pages(pages: Iterable[str]) -> CasState:
@@ -100,7 +146,22 @@ def cas_state_from_pages(pages: Iterable[str]) -> CasState:
 
 
 def parse_cas_pdf(file: str | BinaryIO, password: str = "") -> CasState:
-    return cas_state_from_pages(pdf_text(file, password))
+    candidates = _pdf_text_candidates(file, password)
+    if not candidates:
+        raise CasParseError("No readable text was found in the PDF.")
+
+    errors = []
+    for label, pages in candidates:
+        try:
+            state = cas_state_from_pages(pages)
+            get_portfolio_transactions(state)
+            return state
+        except CasParseError as exc:
+            errors.append(f"{label}: {exc}")
+
+    if errors:
+        raise CasParseError("Could not parse transactions from the PDF text. " + " | ".join(errors))
+    raise CasParseError("Could not parse transactions from the PDF text.")
 
 
 def validate_cas_state(state: CasState) -> None:
@@ -204,7 +265,7 @@ def _closing_row(folio_ord_num: int, state: CasState) -> dict | None:
         if nav_match:
             break
     if not nav_match:
-        return None
+        raise CasParseError(f"Could not parse closing balance for folio ordinal {folio_ord_num + 1}.")
     close_date, close_nav, valuation = nav_match.groups()
     current_value = _parse_num(valuation)
     if current_value == 0:
@@ -223,15 +284,11 @@ def get_transactions(folio_ord_num: int, state: CasState) -> pd.DataFrame:
     validate_cas_state(state)
     working = state.all_lines[state.folio_lines[folio_ord_num] : state.closing_lines[folio_ord_num] + 1]
     rows = []
-    for line in working:
-        match = TRANSACTION_PATTERN.match(line.strip())
-        if match:
-            date_s, amt_s, nav_s, units_s, desc, bal_s = match.groups()
-        else:
-            match = R_TRANSACTION_PATTERN.match(line.strip())
-            if not match:
-                continue
-            date_s, desc, amt_s, units_s, nav_s, bal_s = match.groups()
+    for line in _transaction_blocks(working):
+        parsed = _parse_transaction_line(line)
+        if parsed is None:
+            continue
+        date_s, desc, amt_s, units_s, nav_s, bal_s = parsed
         rows.append(
             {
                 "date": pd.to_datetime(date_s, format="%d-%b-%Y"),
@@ -269,6 +326,60 @@ def get_transactions(folio_ord_num: int, state: CasState) -> pd.DataFrame:
     txns["folio"] = folio
     txns["pan"] = pan
     return txns[EMPTY_TXN_COLUMNS]
+
+
+def _transaction_blocks(lines: Iterable[str]) -> list[str]:
+    blocks: list[str] = []
+    current: list[str] = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        starts_new_txn = bool(DATE_PREFIX_PATTERN.match(line))
+        starts_section = bool(
+            re.search(
+                r"^(Folio No\s*:|Opening Unit Balance:|Closing Unit Balance:|[A-Z0-9]+\s*-|CAMSCASWS)",
+                line,
+                re.I,
+            )
+        )
+
+        if starts_new_txn:
+            if current:
+                blocks.append(" ".join(current))
+            current = [line]
+        elif current and not starts_section:
+            current.append(line)
+        else:
+            if current:
+                blocks.append(" ".join(current))
+                current = []
+            blocks.append(line)
+
+    if current:
+        blocks.append(" ".join(current))
+    return blocks
+
+def _parse_transaction_line(line: str) -> tuple[str, str, str, str, str, str] | None:
+    clean = line.strip()
+    match = TRANSACTION_PATTERN.match(clean)
+    if match:
+        date_s, amt_s, nav_s, units_s, desc, bal_s = match.groups()
+        return date_s, desc.strip(), amt_s, units_s, nav_s, bal_s
+
+    match = R_TRANSACTION_PATTERN.match(clean)
+    if match:
+        date_s, desc, amt_s, units_s, nav_s, bal_s = match.groups()
+        return date_s, desc.strip(), amt_s, units_s, nav_s, bal_s
+
+    idcw_match = IDCW_PATTERN.match(clean)
+    if idcw_match:
+        date_s, desc, amt_s = idcw_match.groups()
+        return date_s, desc.strip(), f"({amt_s})", "0", "0", "0"
+
+    return None
 
 
 def get_portfolio_transactions(state: CasState) -> pd.DataFrame:

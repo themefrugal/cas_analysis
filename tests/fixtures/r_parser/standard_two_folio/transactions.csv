@@ -1,0 +1,5 @@
+date,description,amt,units,nav,bal_units,days,years,amc,fund,advisor,folio,pan
+2024-01-01,Purchase (Continuous Offer),10000,100,100,100,30,0.082135523613963,Alpha Mutual Fund,ALPHA-Alpha Growth Fund,DIRECT,900000010 / 10,AAAAA0000A
+2024-01-05,Purchase (Continuous Offer),5000,50,100,50,26,0.0711841204654346,Beta Mutual Fund,BETA-Beta Income Fund - ISIN: INF000000001,ARN-12345,900000011 / 11,BBBBB1111B
+2024-01-31,Cur Value,-11000,0,110,100,0,0,Alpha Mutual Fund,ALPHA-Alpha Growth Fund,DIRECT,900000010 / 10,AAAAA0000A
+2024-01-31,Cur Value,-6000,0,120,50,0,0,Beta Mutual Fund,BETA-Beta Income Fund - ISIN: INF000000001,ARN-12345,900000011 / 11,BBBBB1111B
