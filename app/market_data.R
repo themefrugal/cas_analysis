@@ -73,7 +73,7 @@ get_cached_navs <- function(scheme_code, required_date = Sys.Date()) {
 }
 
 NAVALL_URL        <- 'https://portal.amfiindia.com/spages/NAVAll.txt'
-NAVALL_CACHE_PATH <- file.path(NAV_CACHE_DIR, 'navall_categorized.rds')
+NAVALL_CACHE_PATH <- './navall_categorized.rds'
 NAVALL_MAX_HOURS  <- 20L
 
 parse_navall <- function(lines) {

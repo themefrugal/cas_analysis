@@ -14,6 +14,7 @@ app/__pycache__/
 app/dev/
 app/rsconnect/
 app/nav_cache_py/
+app/nav_cache/
 app/mf_codes.pkl
 app/*.ipynb
 app/*.py

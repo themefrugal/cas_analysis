@@ -8,7 +8,7 @@
 #   Rscript refresh_mf_codes.R
 #
 # Output:
-#   nav_cache/navall_categorized.rds - full AMFI NAVAll scheme/category cache,
+#   navall_categorized.rds - full AMFI NAVAll scheme/category cache,
 #                                      used by the R Shiny benchmark dropdown
 #   mf_codes.RData         — full scheme list (all categories), used for NAV matching
 #   mf_codes_equity.RData  — legacy equity-only subset retained for compatibility

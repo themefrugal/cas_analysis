@@ -35,4 +35,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Refresh R Shiny scheme data"
-          file_pattern: app/mf_codes.RData app/mf_codes_equity.RData app/nav_cache/navall_categorized.rds
+          file_pattern: app/mf_codes.RData app/mf_codes_equity.RData app/navall_categorized.rds

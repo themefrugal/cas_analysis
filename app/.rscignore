@@ -1,5 +1,5 @@
 # Files and directories excluded from the shinyapps.io R Shiny bundle.
-# rsconnect only supports literal relative paths here (no glob patterns).
+# rsconnect only supports literal top-level paths here (no glob patterns).
 
 .Rhistory
 .Rprofile
@@ -12,6 +12,8 @@ rsconnect
 renv
 renv.lock
 nav_cache_py
+
+nav_cache
 
 # Python implementation and its generated data.
 app.py
