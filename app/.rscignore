@@ -1,28 +1,25 @@
-# Python / notebooks
-*.py
-*.pyc
-__pycache__/
-.ipynb_checkpoints/
-*.ipynb
+# Files and directories excluded from the shinyapps.io R Shiny bundle.
+# rsconnect only supports literal relative paths here (no glob patterns).
 
-# Dev / local-only
-dev/
-rsconnect/
 .Rhistory
+.Rprofile
 .RData
 .Ruserdata
+.ipynb_checkpoints
+__pycache__
+dev
+rsconnect
+renv
+renv.lock
+nav_cache_py
 
-# Python cache/data paths
-nav_cache_py/
+# Python implementation and its generated data.
+app.py
+cas_app.py
+cas_reader.py
+cas_app.ipynb
 mf_codes.pkl
-
-# Local renv package libraries
-renv/library/
-renv/staging/
-renv/local/
-renv/cellar/
-renv/python/
-renv/sandbox/
-
-# Sample files are not needed in production
-www/samples/
+mf_codes_equity.csv
+mf_codes_equity.RData
+cams_screenshot.png
+isin_db
