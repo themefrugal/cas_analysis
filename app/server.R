@@ -6,7 +6,7 @@ library(purrr)
 library(plotly)
 library(reactable)
 
-if (!file.exists('./mf_codes_equity.RData') || !file.exists('./mf_codes.RData')) {
+if (!file.exists('./mf_codes.RData')) {
     stop('Scheme data is missing. Run Rscript refresh_mf_codes.R from the app directory first.')
 }
 
@@ -20,17 +20,18 @@ if (read_from_internet){
     dt_mfs <- dt_mfs[order(schemeName)]
     dt_mfs <- unique(dt_mfs)
     save(dt_mfs, file = './mf_codes.RData')
+    dt_mfs_all <- dt_mfs
 } else {
-    load('./mf_codes_equity.RData')   # dt_mfs — equity only, used for benchmark dropdown
-    # Full fund list for NAV matching (covers debt, gilt, liquid etc.)
-    if (file.exists('./mf_codes.RData')) {
-        load('./mf_codes.RData')
-        dt_mfs_all <- dt_mfs          # mf_codes.RData also saves as dt_mfs; rename
-        load('./mf_codes_equity.RData') # restore dt_mfs to equity-only for dropdown
-    } else {
-        dt_mfs_all <- dt_mfs          # fallback: equity only
-    }
+    load('./mf_codes.RData')
+    dt_mfs_all <- dt_mfs
 }
+dt_navall_schemes <- get_navall_categorized()
+dt_mfs <- unique(
+    dt_navall_schemes[!is.na(SchemeCode) & !is.na(SchemeName) & SchemeName != '',
+                      .(schemeCode = as.character(SchemeCode),
+                        schemeName = as.character(SchemeName))]
+)
+setorder(dt_mfs, schemeName)
 scheme_lookup_all <- get_prepared_scheme_lookup(dt_mfs_all)
 
 get_scheme_code <- function(mf_name){
