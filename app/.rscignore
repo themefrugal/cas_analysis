@@ -1,0 +1,28 @@
+# Python / notebooks
+*.py
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+*.ipynb
+
+# Dev / local-only
+dev/
+rsconnect/
+.Rhistory
+.RData
+.Ruserdata
+
+# Python cache/data paths
+nav_cache_py/
+mf_codes.pkl
+
+# Local renv package libraries
+renv/library/
+renv/staging/
+renv/local/
+renv/cellar/
+renv/python/
+renv/sandbox/
+
+# Sample files are not needed in production
+www/samples/

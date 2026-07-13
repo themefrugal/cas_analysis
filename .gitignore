@@ -6,6 +6,19 @@ __pycache__/
 .RData
 hs_err_pid*.log
 
+app/.Rhistory
+app/.RData
+app/.Ruserdata
+app/.ipynb_checkpoints/
+app/__pycache__/
+app/dev/
+app/rsconnect/
+app/nav_cache_py/
+app/mf_codes.pkl
+app/*.ipynb
+app/*.py
+app/*.pyc
+
 app/renv/library/
 app/renv/local/
 app/renv/cellar/
